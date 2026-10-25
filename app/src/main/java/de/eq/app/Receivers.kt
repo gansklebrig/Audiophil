@@ -30,10 +30,11 @@ class SessionReceiver : BroadcastReceiver() {
     }
 }
 
-/** Startet den Equalizer nach einem Neustart des Handys automatisch. */
+/** Startet den Equalizer nach einem Neustart des Handys und nach einem App-Update automatisch. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED && Prefs(context).enabled) {
+        val ok = intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
+        if (ok && Prefs(context).enabled) {
             try { EqService.start(context) } catch (_: Exception) {}
         }
     }

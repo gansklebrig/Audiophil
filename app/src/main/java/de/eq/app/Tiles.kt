@@ -65,6 +65,7 @@ class EqProfileTile : TileService() {
         } else {
             EqService.instance?.let { it.applyNow(); it.notifyUi() }
             EqService.uiListener?.invoke()
+            EqService.profileSwitchListener?.invoke()
         }
         refresh()
     }
@@ -73,8 +74,8 @@ class EqProfileTile : TileService() {
         val tile = qsTile ?: return
         val prefs = Prefs(this)
         val name = prefs.currentProfileName()
-        tile.state = if (prefs.profiles.isEmpty()) Tile.STATE_UNAVAILABLE
-                     else if (prefs.enabled) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        // bei „keine Profile“ INACTIVE statt UNAVAILABLE, damit der Hinweis beim Antippen erscheint
+        tile.state = if (prefs.enabled && prefs.profiles.isNotEmpty()) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = if (Build.VERSION.SDK_INT >= 29) "EQ-Profil" else (name ?: "EQ-Profil")
         if (Build.VERSION.SDK_INT >= 29) tile.subtitle = name ?: "—"
         tile.updateTile()

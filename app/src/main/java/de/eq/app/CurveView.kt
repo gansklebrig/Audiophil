@@ -190,25 +190,42 @@ class CurveView(ctx: Context) : View(ctx) {
         return best
     }
 
+    // Ziehen relativ zum Punkt: kein Springen beim Antippen, erst ab kleiner Bewegung
+    private val slop = android.view.ViewConfiguration.get(ctx).scaledTouchSlop
+    private var downX = 0f
+    private var downY = 0f
+    private var offX = 0f
+    private var offY = 0f
+    private var moved = false
+
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         scaleDetector.onTouchEvent(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
                 val i = nearest(ev.x, ev.y)
                 dragging = i
-                if (i >= 0 && i != selected) {
+                moved = false
+                if (i < 0) return false     // kein Punkt getroffen → die Seite darf scrollen
+                parent?.requestDisallowInterceptTouchEvent(true)
+                val f = state.filters[i]
+                downX = ev.x; downY = ev.y
+                offX = xOf(f.freq.toDouble()) - ev.x
+                offY = pointY(f) - ev.y
+                if (i != selected) {
                     selected = i
                     onSelect?.invoke(i)
                 }
             }
+            MotionEvent.ACTION_POINTER_DOWN -> parent?.requestDisallowInterceptTouchEvent(true)
             MotionEvent.ACTION_MOVE -> {
                 val i = dragging
                 if (i >= 0 && !scaleDetector.isInProgress && ev.pointerCount == 1) {
+                    if (!moved && hypot(ev.x - downX, ev.y - downY) < slop) return true
+                    moved = true
                     val f = state.filters.getOrNull(i) ?: return true
-                    val freq = fOf(ev.x).roundToInt().toFloat().coerceIn(20f, 20000f)
+                    val freq = fOf(ev.x + offX).roundToInt().toFloat().coerceIn(20f, 20000f)
                     val gain = if (FilterType.hasGain(f.type))
-                        ((dbOf(ev.y).coerceIn(-range, range)) * 10).roundToInt() / 10f
+                        ((dbOf(ev.y + offY).coerceIn(-range, range)) * 10).roundToInt() / 10f
                     else f.gain
                     onFilterChange?.invoke(i, f.copy(freq = freq, gain = gain))
                 }

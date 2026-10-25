@@ -80,7 +80,28 @@ class HearingTestActivity : Activity() {
         }
     }
 
+    /** Ergebnis wird gerade angezeigt, ist aber noch nicht übernommen. */
+    private var resultShown = false
+
+    /** Zurück: laufenden Test bzw. ein nicht übernommenes Ergebnis nicht versehentlich verwerfen. */
+    @Deprecated("Activity-API")
+    override fun onBackPressed() {
+        val what = when {
+            testing -> "Hörtest abbrechen?"
+            resultShown -> "Ergebnis verwerfen?"
+            else -> null
+        }
+        if (what == null) { @Suppress("DEPRECATION") super.onBackPressed(); return }
+        AlertDialog.Builder(this)
+            .setTitle(what)
+            .setMessage("Die bisherigen Messwerte gehen verloren.")
+            .setPositiveButton("Ja") { _, _ -> testing = false; stopTone(); finish() }
+            .setNegativeButton("Weiter", null)
+            .show()
+    }
+
     private fun page(build: (LinearLayout) -> Unit) {
+        resultShown = false
         val root = ui.vbox().apply { setPadding(ui.dp(22), ui.dp(28), ui.dp(22), ui.dp(32)) }
         build(root)
         setContentView(ScrollView(this).apply { setBackgroundColor(Palette.bg); addView(root) })
@@ -280,6 +301,7 @@ class HearingTestActivity : Activity() {
                 }
             }, 8))
         }
+        resultShown = true
     }
 
     private fun apply(filters: List<PFilter>, all: Boolean) {

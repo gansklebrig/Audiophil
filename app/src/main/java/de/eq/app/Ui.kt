@@ -96,6 +96,9 @@ class Ui(private val ctx: Context) {
         setOnClickListener { onClick() }
     }
 
+    /** Laufende Wiederholungen (gedrückt gehaltene −/+) sofort beenden. */
+    fun stopRepeats() = repeatHandler.removeCallbacksAndMessages(null)
+
     /** −/+ Taste: Tippen = ein Schritt, Gedrückthalten = schnell weiterzählen. */
     fun stepButton(label: String, onStep: () -> Unit) = Button(ctx).apply {
         text = label
@@ -106,7 +109,7 @@ class Ui(private val ctx: Context) {
         background = touchBg(Palette.surface, 12, 45)
         setPadding(0, 0, 0, 0)
         minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
-        layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply { setMargins(dp(2), 0, dp(2), 0) }
+        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { setMargins(dp(2), 0, dp(2), 0) }
         val repeater = object : Runnable {
             override fun run() {
                 onStep()
@@ -124,7 +127,7 @@ class Ui(private val ctx: Context) {
     }
 
     /** Runder Symbolknopf ohne Wiederholung (z. B. ↶ ↷ ‹). */
-    fun iconButton(label: String, size: Int = 40, onClick: () -> Unit) = Button(ctx).apply {
+    fun iconButton(label: String, size: Int = 44, onClick: () -> Unit) = Button(ctx).apply {
         text = label
         isAllCaps = false
         textSize = 18f
@@ -215,7 +218,7 @@ class Ui(private val ctx: Context) {
         val sub = TextView(ctx).apply {
             textSize = 12f
             setTextColor(Palette.muted)
-            maxLines = 1
+            maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
         }
         val v = LinearLayout(ctx).apply {

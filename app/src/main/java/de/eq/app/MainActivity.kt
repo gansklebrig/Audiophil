@@ -89,7 +89,7 @@ class MainActivity : Activity() {
     private lateinit var updateBanner: LinearLayout
     private lateinit var updateBannerText: TextView
     private var updateInfo: TextView? = null
-    private var tokenSub: TextView? = null
+    private var seenProfileLoads = -1
     private var autoUpdateSwitch: Switch? = null
 
     // Der Klang-Bereich (Kurve bzw. Bänder) wandert zwischen Startseite und Equalizer-Seite
@@ -209,11 +209,15 @@ class MainActivity : Activity() {
         if (presetAtPause != null && presetAtPause != prefs.presetName) clearHistory()
         render()
         updateSpectrum()
+        Updater.uiVisible = true
+        updater.showPendingConfirm()
         updater.checkQuietly()
     }
 
     override fun onPause() {
         resumed = false
+        Updater.uiVisible = false
+        ui.stopRepeats()
         presetAtPause = prefs.presetName
         EqService.uiListener = null
         EqService.volumeListener = null
@@ -221,6 +225,11 @@ class MainActivity : Activity() {
         EqService.instance?.setBypass(EqService.BYPASS_NONE)
         if (built) updateSpectrum()
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        if (built) updater.release()
+        super.onDestroy()
     }
 
     /** Zurück-Taste: aus einem Untermenü zur Startseite. */
@@ -370,7 +379,7 @@ class MainActivity : Activity() {
             text = "Bearbeiten ›"
             textSize = 13f
             setTextColor(Palette.goldLight)
-            setPadding(ui.dp(12), ui.dp(8), 0, ui.dp(8))
+            setPadding(ui.dp(16), ui.dp(14), ui.dp(4), ui.dp(14))
             setOnClickListener { openPage(PAGE_EQ) }
         }
         filterInfoRow = ui.row(filterInfo, edit)
@@ -480,9 +489,7 @@ class MainActivity : Activity() {
         homeScroll.alpha = 0f
         homeScroll.animate().alpha(1f).setDuration(190).start()
         p.animate().cancel()
-        p.animate().alpha(0f).translationX(ui.dp(36).toFloat()).setDuration(150).withEndAction {
-            if (openPage == NO_PAGE) p.visibility = View.GONE
-        }.start()
+        p.visibility = View.GONE     // sofort ausblenden, damit sie keine Berührungen mehr abfängt
     }
 
     /** Kurve bzw. Bänder in den Halter der gerade sichtbaren Seite hängen. */
@@ -502,7 +509,6 @@ class MainActivity : Activity() {
         tileSubs[PAGE_UPDATE]?.text = if (newer > 0) "Neu: 1.$newer" else "Version 1.$mine"
         tileSubs[PAGE_UPDATE]?.setTextColor(if (newer > 0) Palette.goldLight else Palette.muted)
         updateInfo?.text = if (newer > 0) "Installiert: 1.$mine  ·  verfügbar: 1.$newer" else "Installiert: Version 1.$mine"
-        tokenSub?.text = if (Updater.token(this).isEmpty()) "Nicht eingetragen – nötig, solange das Repo privat ist" else "Eingetragen ✓"
         val was = ui.silent
         ui.silent = true
         autoUpdateSwitch?.isChecked = Updater.autoCheck(this)
@@ -564,20 +570,20 @@ class MainActivity : Activity() {
                 setBand(b, p + minLevel)
             }
             bandBars.add(bar)
+            box.addView(ui.row(rowLabel(formatFreq(bandFreqs[b])), value).apply { setPadding(0, ui.dp(6), 0, 0) })
             box.addView(ui.row(
-                rowLabel(formatFreq(bandFreqs[b])),
                 ui.stepButton("−") { setBand(b, st.bands.getOrElse(b) { 0 } - BAND_STEP) },
                 bar,
                 ui.stepButton("+") { setBand(b, st.bands.getOrElse(b) { 0 } + BAND_STEP) },
-                value,
-            ))
+            ).apply { setPadding(0, 0, 0, 0) })
         }
         if (bassSupported) {
             val v = ui.valueText().apply { minWidth = ui.dp(64) }
             val bar = ui.slider(1000, 0, display = { v.text = "${it / 10} %" }) { p -> update { it.copy(bass = p) } }
             bassBar = bar
             box.addView(ui.divider())
-            box.addView(ui.row(rowLabel("Bass"), bar, v))
+            box.addView(ui.row(rowLabel("Bass-Boost"), v))
+            box.addView(ui.row(bar))
         }
     }
 
@@ -585,7 +591,18 @@ class MainActivity : Activity() {
         text = t
         textSize = 12.5f
         setTextColor(Palette.muted)
-        layoutParams = LinearLayout.LayoutParams(ui.dp(52), WRAP_CONTENT)
+        layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+    }
+
+    /** Fragt nach, bevor ein anderes ★-Profil gleichen Namens ersetzt wird. */
+    private fun confirmOverwrite(name: String, go: () -> Unit) {
+        if (prefs.findProfile(name) == null || prefs.currentProfileName() == name) { go(); return }
+        AlertDialog.Builder(this)
+            .setTitle("„$name“ ersetzen?")
+            .setMessage("Es gibt schon ein Profil mit diesem Namen. Es wird überschrieben.")
+            .setPositiveButton("Ersetzen") { _, _ -> go() }
+            .setNegativeButton("Abbrechen", null)
+            .show()
     }
 
     private fun setBand(b: Int, mb: Int) {
@@ -1029,7 +1046,7 @@ class MainActivity : Activity() {
 
         val t = ui.card("Hörtest")
         t.addView(ui.hint(
-            "Misst in etwa 4 Minuten je Ohr, wie gut du mit deinen Kopfhörern hörst, und gleicht Unterschiede aus. " +
+            "Misst in etwa 4 Minuten, getrennt für jedes Ohr, wie gut du mit deinen Kopfhörern hörst, und gleicht Unterschiede aus. " +
             "Die Korrektur gehört zum Profil – am besten je Kopfhörer einmal testen. Kein Ersatz für einen ärztlichen Hörtest."
         ))
         t.addView(ui.wideButton("Hörtest starten", primary = true) {
@@ -1215,18 +1232,23 @@ class MainActivity : Activity() {
         val c = ui.card("Aktuelles Profil")
         c.addView(ui.wideButton("Speichern als …", primary = true) {
             askText("Neues Profil", "", "z. B. Sony-Kopfhörer, Auto, Podcast …") { name ->
-                prefs.saveProfile(name)
-                prefs.presetName = PROFILE_PREFIX + name
-                render()
-                ui.toast("Profil „$name“ gespeichert")
+                confirmOverwrite(name) {
+                    prefs.saveProfile(name)
+                    prefs.presetName = PROFILE_PREFIX + name
+                    render()
+                    ui.toast("Profil „$name“ gespeichert")
+                }
             }
         })
         renameBtn = ui.smallButton("Umbenennen") {
             val name = prefs.currentProfileName() ?: return@smallButton
             askText("Profil umbenennen", name, "") { new ->
-                prefs.renameProfile(name, new)
-                prefs.presetName = PROFILE_PREFIX + new
-                render()
+                if (new == name) return@askText
+                confirmOverwrite(new) {
+                    prefs.renameProfile(name, new)
+                    prefs.presetName = PROFILE_PREFIX + new
+                    render()
+                }
             }
         }
         deleteBtn = ui.smallButton("Löschen") {
@@ -1393,6 +1415,11 @@ class MainActivity : Activity() {
     private fun render() {
         val was = ui.silent
         ui.silent = true
+        // Profil wurde geladen (auch über Kachel, Widget, Benachrichtigung, Kopfhörer) → alter Verlauf passt nicht mehr
+        if (Prefs.profileLoads != seenProfileLoads) {
+            if (seenProfileLoads >= 0) clearHistory()
+            seenProfileLoads = Prefs.profileLoads
+        }
         normalizeBands()
         val s = prefs.state
         renderPower()
@@ -1419,7 +1446,8 @@ class MainActivity : Activity() {
         preampBar.progress = ((s.preamp - PREAMP_MIN) * 10).roundToInt()
         preampValue.text = formatDbF(s.preamp)
 
-        spectrumSwitch.isChecked = prefs.spectrum
+        spectrumSwitch.isChecked = prefs.spectrum &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         loudCompBar?.progress = s.loudComp
         nightBar?.progress = s.night
         updateLoudInfo()
@@ -1462,7 +1490,11 @@ class MainActivity : Activity() {
             is Entry.Flat -> {
                 pushUndo(st)
                 applyState(
-                    st.copy(bands = IntArray(bandCount), filters = st.filters.map { it.copy(gain = 0f) }, preamp = 0f),
+                    st.copy(
+                        bands = IntArray(bandCount), bass = 0, preamp = 0f,
+                        // Glocken/Shelves auf 0 dB, Tief-/Hochpässe aus
+                        filters = st.filters.map { if (FilterType.hasGain(it.type)) it.copy(gain = 0f) else it.copy(on = false) },
+                    ),
                     FLAT,
                 )
             }
@@ -1571,7 +1603,9 @@ class MainActivity : Activity() {
     }
 
     /** Neues ★-Profil im parametrischen Modus anlegen (Lautstärke, Limiter, Balance bleiben). */
-    private fun createParamProfile(name: String, parsed: ParsedEq) {
+    private fun createParamProfile(base: String, parsed: ParsedEq) {
+        if (isFinishing || isDestroyed) return
+        val name = prefs.uniqueName(base)
         clearHistory()
         prefs.state = st.copy(mode = MODE_PARAMETRIC, filters = parsed.filters, preamp = parsed.preamp)
         prefs.saveProfile(name)
@@ -1641,10 +1675,15 @@ class MainActivity : Activity() {
         val text = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: return
         val t = text.trim()
         if (t.startsWith("{") || t.startsWith("[")) {
-            val n = prefs.importJson(t)
+            val names = prefs.importJson(t)
+            // Wurde das gerade aktive Profil ersetzt, die neue Fassung auch laden und anwenden
+            prefs.currentProfileName()?.takeIf { it in names }?.let {
+                prefs.loadProfile(it)
+                EqService.instance?.applyNow()
+            }
             clearHistory()
             render()
-            ui.toast("$n Profil(e) importiert")
+            ui.toast(if (names.isEmpty()) "Keine Profile in der Datei gefunden" else "${names.size} Profil(e) importiert")
             return
         }
         val parsed = AutoEq.parseParametric(t)

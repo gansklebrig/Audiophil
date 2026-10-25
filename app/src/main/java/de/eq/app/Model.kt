@@ -55,20 +55,25 @@ data class PFilter(
         .put("ch", channel)
 
     companion object {
+        /** Liest einen Filter; unsinnige Werte (auch NaN aus fremden Dateien) werden in den gültigen Bereich gebracht. */
         fun fromJson(o: JSONObject) = PFilter(
-            o.optInt("type", FilterType.PEAK),
-            o.optDouble("freq", 1000.0).toFloat(),
-            o.optDouble("gain", 0.0).toFloat(),
-            o.optDouble("q", 1.0).toFloat(),
+            o.optInt("type", FilterType.PEAK).coerceIn(FilterType.PEAK, FilterType.HIGH_PASS),
+            safe(o.optDouble("freq", 1000.0), 1000.0).coerceIn(20f, 20000f),
+            safe(o.optDouble("gain", 0.0), 0.0).coerceIn(-30f, 30f),
+            safe(o.optDouble("q", 1.0), 1.0).coerceIn(0.1f, 10f),
             o.optBoolean("on", true),
-            o.optInt("ch", CH_BOTH),
+            o.optInt("ch", CH_BOTH).coerceIn(CH_BOTH, CH_RIGHT),
         )
     }
 }
 
+/** Endliche Zahl als Float, sonst [def]. */
+internal fun safe(v: Double, def: Double): Float = (if (v.isNaN() || v.isInfinite()) def else v).toFloat()
+
 private fun filtersToJson(list: List<PFilter>) = JSONArray().also { a -> list.forEach { a.put(it.toJson()) } }
+/** Kaputte Einträge werden übersprungen statt den ganzen Import scheitern zu lassen. */
 private fun filtersFromJson(a: JSONArray?): List<PFilter>? =
-    a?.let { arr -> (0 until arr.length()).map { PFilter.fromJson(arr.getJSONObject(it)) } }
+    a?.let { arr -> (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { runCatching { PFilter.fromJson(it) }.getOrNull() } }.take(20) }
 
 /**
  * Kompletter Klangzustand – genau das, was in einem ★-Profil gespeichert wird.
@@ -126,21 +131,21 @@ data class EqState(
         fun fromJson(o: JSONObject): EqState {
             val b = o.optJSONArray("bands") ?: JSONArray()
             return EqState(
-                mode = o.optInt("mode", MODE_GRAPHIC),
-                bands = IntArray(b.length()) { b.optInt(it) },
-                bass = o.optInt("bass", 0),
-                loudness = o.optInt("loudness", 0),
+                mode = o.optInt("mode", MODE_GRAPHIC).coerceIn(MODE_GRAPHIC, MODE_PARAMETRIC),
+                bands = IntArray(b.length()) { b.optInt(it).coerceIn(-3000, 3000) },
+                bass = o.optInt("bass", 0).coerceIn(0, 1000),
+                loudness = o.optInt("loudness", 0).coerceIn(0, 1500),
                 filters = filtersFromJson(o.optJSONArray("filters")) ?: DEFAULT_FILTERS,
-                preamp = o.optDouble("preamp", 0.0).toFloat(),
+                preamp = safe(o.optDouble("preamp", 0.0), 0.0).coerceIn(-20f, 10f),
                 limiter = o.optBoolean("limiter", true),
-                limiterThreshold = o.optDouble("limiterThreshold", -1.0).toFloat(),
-                balance = o.optInt("balance", 0),
+                limiterThreshold = safe(o.optDouble("limiterThreshold", -1.0), -1.0).coerceIn(-12f, 0f),
+                balance = o.optInt("balance", 0).coerceIn(-100, 100),
                 hearing = filtersFromJson(o.optJSONArray("hearing")) ?: emptyList(),
                 hearingOn = o.optBoolean("hearingOn", true),
-                hearingAmount = o.optInt("hearingAmount", 100),
+                hearingAmount = o.optInt("hearingAmount", 100).coerceIn(0, 150),
                 hearingDate = o.optLong("hearingDate", 0L),
-                loudComp = o.optInt("loudComp", 0),
-                night = o.optInt("night", 0),
+                loudComp = o.optInt("loudComp", 0).coerceIn(0, 100),
+                night = o.optInt("night", 0).coerceIn(0, 100),
             )
         }
     }

@@ -20,27 +20,36 @@ object AudioDevices {
     private val usb = listOf(AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE)
     private val wired = listOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET)
 
-    /** Reihenfolge: Bluetooth vor USB vor Kabel – so wie Android selbst den Ton leitet. */
+    /** Reihenfolge, falls unklar ist, was zuletzt angeschlossen wurde: Bluetooth vor USB vor Kabel. */
     private val priority = bluetooth + usb + wired
+
+    /** Zuletzt angeschlossener Kopfhörer – Android leitet den Ton meist auf das neueste Gerät. */
+    @Volatile private var lastAddedId = -1
+
+    fun noteAdded(added: Array<out AudioDeviceInfo>?) {
+        // Beim Start meldet Android alle Geräte auf einmal – dann ist nichts „neu“
+        val phones = added.orEmpty().filter { it.isSink && it.type in priority }
+        if (phones.size == 1) lastAddedId = phones[0].id
+    }
 
     fun current(context: Context): OutDevice {
         val am = context.getSystemService(AudioManager::class.java)
         val outputs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        for (type in priority) {
-            val d = outputs.firstOrNull { it.type == type } ?: continue
-            val name = d.productName?.toString()?.trim().orEmpty()
-            return when (type) {
-                in bluetooth -> {
-                    val n = name.ifEmpty { "Bluetooth-Gerät" }
-                    OutDevice("bt:$n", n)
-                }
-                in usb -> {
-                    val n = name.ifEmpty { "USB-Audio" }
-                    OutDevice("usb:$n", "$n (USB)")
-                }
-                else -> OutDevice("wired", "Kabelkopfhörer")
+        // zuerst der zuletzt angeschlossene Kopfhörer, sonst nach fester Reihenfolge
+        val d = outputs.firstOrNull { it.id == lastAddedId && it.type in priority }
+            ?: priority.firstNotNullOfOrNull { t -> outputs.firstOrNull { it.type == t } }
+            ?: return OutDevice(SPEAKER_KEY, "Handy-Lautsprecher")
+        val name = d.productName?.toString()?.trim().orEmpty()
+        return when (d.type) {
+            in bluetooth -> {
+                val n = name.ifEmpty { "Bluetooth-Gerät" }
+                OutDevice("bt:$n", n)
             }
+            in usb -> {
+                val n = name.ifEmpty { "USB-Audio" }
+                OutDevice("usb:$n", "$n (USB)")
+            }
+            else -> OutDevice("wired", "Kabelkopfhörer")
         }
-        return OutDevice(SPEAKER_KEY, "Handy-Lautsprecher")
     }
 }

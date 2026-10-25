@@ -69,7 +69,9 @@ class RoomMeasureActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        val hadProbe = probe != null
         stopProbe()
+        if (hadProbe && !measuring) showIntro()     // Knopf wieder auf „abspielen“
         if (measuring) {
             measure?.running = false
             measuring = false
@@ -81,9 +83,26 @@ class RoomMeasureActivity : Activity() {
 
     @Deprecated("Activity-API")
     override fun onBackPressed() {
-        if (measuring) { measure?.running = false; measuring = false; showIntro() }
-        else @Suppress("DEPRECATION") super.onBackPressed()
+        when {
+            measuring -> { measure?.running = false; measuring = false; showIntro() }
+            results.isNotEmpty() -> confirmDiscard { finish() }
+            else -> @Suppress("DEPRECATION") super.onBackPressed()
+        }
     }
+
+    /** Fertige Messungen nicht ohne Nachfrage wegwerfen. */
+    private fun confirmDiscard(then: () -> Unit) {
+        if (results.isEmpty()) { then(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Messung verwerfen?")
+            .setMessage("${results.size} fertige Messung(en) gehen verloren.")
+            .setPositiveButton("Verwerfen") { _, _ -> results.clear(); then() }
+            .setNegativeButton("Weiter", null)
+            .show()
+    }
+
+    /** Zählt Messläufe – ein abgebrochener Countdown darf keinen zweiten Lauf starten. */
+    private var runId = 0
 
     private fun page(title: String, onBack: () -> Unit, build: (LinearLayout) -> Unit) {
         val root = ui.vbox().apply { setPadding(ui.dp(16), ui.dp(18), ui.dp(16), ui.dp(36)) }
@@ -103,6 +122,7 @@ class RoomMeasureActivity : Activity() {
     private fun showIntro() {
         stopProbe()
         measuring = false
+        runId++
         page("Boxen einmessen", { finish() }) { root ->
             val how = ui.card("So geht’s")
             numbered(how, listOf(
@@ -188,6 +208,7 @@ class RoomMeasureActivity : Activity() {
 
     private fun runPosition(i: Int) {
         measuring = true
+        val myRun = ++runId
         lateinit var status: TextView
         lateinit var sub: TextView
         lateinit var bar: ProgressBar
@@ -215,7 +236,7 @@ class RoomMeasureActivity : Activity() {
         var n = 3
         val tick = object : Runnable {
             override fun run() {
-                if (!measuring) return
+                if (!measuring || myRun != runId) return
                 if (n > 0) {
                     status.text = "$n"
                     sub.text = "Gleich geht’s los – bitte ruhig sein"
@@ -260,7 +281,7 @@ class RoomMeasureActivity : Activity() {
 
     private fun showMove(next: Int) {
         measuring = false
-        page("Messpunkt ${next + 1} von $positions", { showIntro() }) { root ->
+        page("Messpunkt ${next + 1} von $positions", { confirmDiscard { showIntro() } }) { root ->
             val c = ui.card("Handy versetzen")
             c.addView(ui.hint(
                 "Lege das Handy 30–50 cm weiter weg ab – z. B. etwas links oder rechts vom Hörplatz, " +
@@ -283,7 +304,7 @@ class RoomMeasureActivity : Activity() {
         shown = f
         lateinit var graph: RoomView
         lateinit var summary: TextView
-        page("Ergebnis", { showIntro() }) { root ->
+        page("Ergebnis", { confirmDiscard { showIntro() } }) { root ->
             val c = ui.card("Frequenzgang am Hörplatz")
             graph = RoomView(this).apply { data = f }
             c.addView(graph)
@@ -339,7 +360,13 @@ class RoomMeasureActivity : Activity() {
             .setView(ui.vbox().apply { setPadding(ui.dp(20), ui.dp(8), ui.dp(20), 0); addView(input, MATCH_PARENT, WRAP_CONTENT) })
             .setPositiveButton("Speichern") { _, _ ->
                 val name = input.text.toString().trim().ifEmpty { def }
-                save(name, f, dev)
+                if (prefs.findProfile(name) == null) save(name, f, dev)
+                else AlertDialog.Builder(this)
+                    .setTitle("„$name“ gibt es schon")
+                    .setPositiveButton("Ersetzen") { _, _ -> save(name, f, dev) }
+                    .setNeutralButton("Als neues speichern") { _, _ -> save(prefs.uniqueName(name), f, dev) }
+                    .setNegativeButton("Abbrechen", null)
+                    .show()
             }
             .setNegativeButton("Abbrechen", null)
             .show()
@@ -469,7 +496,10 @@ class RoomMeasureActivity : Activity() {
     private inner class Probe(private val onLevel: (Float, Float) -> Unit) : Thread("Pegelprüfung") {
         @Volatile var running = true
         override fun run() {
-            val rec = createRecorder() ?: run { main.post { ui.toast("Mikrofon nicht verfügbar") }; return }
+            val rec = createRecorder() ?: run {
+                main.post { ui.toast("Mikrofon nicht verfügbar"); if (!measuring) showIntro() }
+                return
+            }
             val player = Player(RoomEq.pinkNoise(RoomEq.SR * 4, seed = 11L), loop = true)
             val buf = ShortArray(RoomEq.SR / 5)
             try {
@@ -477,7 +507,11 @@ class RoomMeasureActivity : Activity() {
                 player.start()
                 while (running) {
                     val n = rec.read(buf, 0, buf.size)
-                    if (n <= 0) continue
+                    if (n < 0) {
+                        main.post { ui.toast("Mikrofon liefert keine Daten"); if (!measuring) showIntro() }
+                        break
+                    }
+                    if (n == 0) { Thread.sleep(5); continue }
                     var s = 0.0; var pk = 0
                     for (i in 0 until n) { val v = buf[i].toInt(); s += v.toDouble() * v; pk = max(pk, abs(v)) }
                     val rms = (10 * log10((s / n).coerceAtLeast(1e-9) / (32768.0 * 32768.0))).toFloat()
@@ -555,10 +589,17 @@ class RoomMeasureActivity : Activity() {
             val out = FloatArray(n)
             val buf = ShortArray(RoomEq.SR / 10)
             var pos = 0
+            var zeros = 0
             while (pos < n) {
                 if (!running) return null
                 val r = rec.read(buf, 0, minOf(buf.size, n - pos))
-                if (r <= 0) continue
+                if (r < 0) throw IllegalStateException("Mikrofon liefert keine Daten (Fehler $r)")
+                if (r == 0) {
+                    if (++zeros > 400) throw IllegalStateException("Mikrofon liefert keine Daten")
+                    Thread.sleep(5)
+                    continue
+                }
+                zeros = 0
                 var s = 0.0
                 for (i in 0 until r) { val v = buf[i] / 32768f; out[pos + i] = v; s += v.toDouble() * v }
                 pos += r

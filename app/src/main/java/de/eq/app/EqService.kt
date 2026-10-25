@@ -53,7 +53,7 @@ class EqService : Service() {
         val loud: LoudnessEnhancer?,
     )
 
-    private val effects = HashMap<Int, Fx>()
+    private val effects = LinkedHashMap<Int, Fx>()   // in Reihenfolge des Hinzufügens
     private lateinit var prefs: Prefs
     private lateinit var audio: AudioManager
     private val handler = Handler(Looper.getMainLooper())
@@ -75,13 +75,19 @@ class EqService : Service() {
     /** Handy-Lautstärke geändert → Lautheitsausgleich nachführen. */
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
+            // nur die Medien-Lautstärke ist relevant (nicht Klingelton, Wecker …)
+            val stream = i.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", AudioManager.STREAM_MUSIC)
+            if (stream != AudioManager.STREAM_MUSIC) return
             if (prefs.state.loudComp > 0) applyAll()
             volumeListener?.invoke()
         }
     }
 
     private val deviceCallback = object : AudioDeviceCallback() {
-        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) = onDevicesChanged()
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) {
+            AudioDevices.noteAdded(added)
+            onDevicesChanged()
+        }
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) = onDevicesChanged()
     }
 
@@ -119,7 +125,7 @@ class EqService : Service() {
             ACTION_NEXT_PROFILE -> {
                 val next = prefs.nextProfile()
                 if (next == null) toast("Noch keine ★-Profile angelegt")
-                else { applyNow(); toast("Profil: $next") }
+                else { applyNow(); toast("Profil: $next"); profileSwitchListener?.invoke() }
                 notifyUi()
             }
         }
@@ -163,6 +169,12 @@ class EqService : Service() {
 
     fun addSession(session: Int) {
         if (effects.containsKey(session)) return
+        // Im globalen Modus wirkt der Effekt schon auf die Gesamtausgabe – zusätzlich auf
+        // die Session einer Musik-App angewendet, würde alles doppelt verstärkt.
+        if (session > 0 && prefs.global && effects.containsKey(0)) return
+        // Apps, die abstürzen, melden ihre Session nie ab → nur die neuesten behalten
+        val apps = effects.keys.filter { it > 0 }
+        if (session > 0 && apps.size >= MAX_APP_SESSIONS) removeSession(apps.first())
         val eq = try { Equalizer(PRIORITY, session) } catch (e: Exception) { null }
         val bass = try { BassBoost(PRIORITY, session) } catch (e: Exception) { null }
         var dp: DynamicsProcessing? = null
@@ -199,6 +211,14 @@ class EqService : Service() {
         }
         val fx = Fx(eq, bass, dp, cutoffs, hasMbc, loud)
         effects[session] = fx
+        // Übernimmt eine andere Equalizer-App kurz die Kontrolle, danach die Einstellungen neu setzen
+        listOfNotNull<AudioEffect>(eq, bass, dp, loud).forEach { e ->
+            try {
+                e.setControlStatusListener { _, granted ->
+                    if (granted) handler.post { effects[session]?.let { applyTo(it, prefs.state) } }
+                }
+            } catch (_: Exception) {}
+        }
         applyTo(fx, prefs.state)
         Log.i(TAG, "Session $session übernommen (EQ=${eq != null}, DP=${dp != null}, MBC=$hasMbc)")
         notifyUi()
@@ -211,7 +231,11 @@ class EqService : Service() {
 
     /** Globalen Effekt (Session 0) je nach Einstellung an- oder abschalten. */
     fun refreshGlobal() {
-        if (prefs.global) addSession(0) else removeSession(0)
+        if (prefs.global) {
+            addSession(0)
+            // klappt der globale Effekt, die App-Sessions freigeben (sonst wirkt alles doppelt)
+            if (effects.containsKey(0)) effects.keys.filter { it > 0 }.forEach { removeSession(it) }
+        } else removeSession(0)
     }
 
     /** Einstellungen anwenden – gebündelt, damit schnelles Schieben flüssig bleibt. */
@@ -252,26 +276,35 @@ class EqService : Service() {
         // Ist der parametrische EQ gewählt, aber auf dieser Session nicht verfügbar,
         // bleibt der Band-EQ trotzdem aus – sonst klänge es nach einem anderen Profil.
         val parametric = s.mode == MODE_PARAMETRIC
-        try {
+        // Jeder Effekt einzeln: scheitert einer (z. B. weil eine andere App ihn gerade steuert),
+        // werden die übrigen trotzdem gesetzt.
+        guard("Equalizer") {
             fx.eq?.let { eq ->
                 if (!parametric) {
                     val n = eq.numberOfBands.toInt()
-                    for (b in 0 until minOf(n, s.bands.size)) eq.setBandLevel(b.toShort(), s.bands[b].toShort())
+                    val lo = eq.bandLevelRange[0].toInt(); val hi = eq.bandLevelRange[1].toInt()
+                    for (b in 0 until minOf(n, s.bands.size)) eq.setBandLevel(b.toShort(), s.bands[b].coerceIn(lo, hi).toShort())
                 }
                 eq.enabled = !parametric
             }
+        }
+        guard("BassBoost") {
             fx.bass?.let {
-                if (it.strengthSupported) it.setStrength(s.bass.toShort())
+                if (it.strengthSupported) it.setStrength(s.bass.coerceIn(0, 1000).toShort())
                 it.enabled = !parametric && s.bass > 0
             }
-            fx.dp?.let { applyDynamics(it, fx, s, parametric) }
+        }
+        guard("DynamicsProcessing") { fx.dp?.let { applyDynamics(it, fx, s, parametric) } }
+        guard("LoudnessEnhancer") {
             fx.loud?.let {
-                it.setTargetGain(s.loudness)
+                it.setTargetGain(s.loudness.coerceIn(0, 1500))
                 it.enabled = s.loudness > 0
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Anwenden fehlgeschlagen: ${e.message}")
         }
+    }
+
+    private inline fun guard(what: String, block: () -> Unit) {
+        try { block() } catch (e: Exception) { Log.w(TAG, "$what: Anwenden fehlgeschlagen: ${e.message}") }
     }
 
     /** Zustand ohne Klangfärbung (für den Vorher/Nachher-Vergleich). */
@@ -469,6 +502,7 @@ class EqService : Service() {
         private const val VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
         /** Hohe Priorität, damit wir Vorrang vor anderen Effekten bekommen. */
         private const val PRIORITY = Int.MAX_VALUE
+        private const val MAX_APP_SESSIONS = 8
 
         const val BYPASS_NONE = 0
         const val BYPASS_EQ = 1     // Vorher/Nachher: Klangfärbung aus, Pegel bleibt

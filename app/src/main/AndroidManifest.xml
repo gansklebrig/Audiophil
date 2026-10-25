@@ -21,6 +21,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -42,6 +43,7 @@
         <!-- Hörtest -->
         <activity
             android:name=".HearingTestActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:label="Hörtest" />
 
@@ -120,6 +122,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
         <!-- Rückmeldung des Installers beim Update aus der App -->

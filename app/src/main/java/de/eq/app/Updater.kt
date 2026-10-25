@@ -44,8 +44,11 @@ object Updater {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun token(ctx: Context): String = prefs(ctx).getString("token", "") ?: ""
-    fun setToken(ctx: Context, t: String) = prefs(ctx).edit().putString("token", t.trim()).apply()
+    /** Ist die App gerade sichtbar? Dann kann die Installations-Bestätigung direkt erscheinen. */
+    @Volatile var uiVisible = false
+
+    /** Bestätigung, die ankam, während die App im Hintergrund war – wird beim nächsten Öffnen gezeigt. */
+    @Volatile var pendingConfirm: Intent? = null
 
     fun autoCheck(ctx: Context) = prefs(ctx).getBoolean("auto", true)
     fun setAutoCheck(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("auto", on).apply()
@@ -67,7 +70,7 @@ object Updater {
     fun dueForCheck(ctx: Context) =
         autoCheck(ctx) && System.currentTimeMillis() - prefs(ctx).getLong("last", 0) > CHECK_EVERY_MS
 
-    private fun open(url: String, ctx: Context, accept: String, auth: Boolean): HttpURLConnection =
+    private fun open(url: String, accept: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 30000
@@ -75,21 +78,23 @@ object Updater {
             setRequestProperty("Accept", accept)
             setRequestProperty("User-Agent", "Equalizer-App")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-            val t = token(ctx)
-            if (auth && t.isNotEmpty()) setRequestProperty("Authorization", "Bearer $t")
         }
 
     /** Neuestes Release abfragen (blockiert – im Hintergrund aufrufen). */
     fun fetchLatest(ctx: Context): Release {
-        val c = open(API, ctx, "application/vnd.github+json", auth = true)
-        val code = c.responseCode
-        if (code == 401) throw UpdateException("Der GitHub-Zugang ist ungültig oder abgelaufen.")
-        if (code == 404) throw UpdateException("Auf GitHub ist noch keine Version veröffentlicht.")
-        if (code == 403) throw UpdateException("GitHub hat die Abfrage gerade begrenzt. Bitte später noch einmal.")
-        if (code != 200) throw UpdateException("GitHub antwortet mit Fehler $code.")
-        val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+        prefs(ctx).edit().remove("token").apply()     // Zugang aus der privaten Zeit wird nicht mehr gebraucht
+        val c = open(API, "application/vnd.github+json")
+        val j = try {
+            when (val code = c.responseCode) {
+                200 -> JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                404 -> throw UpdateException("Auf GitHub ist noch keine Version veröffentlicht.")
+                403, 429 -> throw UpdateException("GitHub hat die Abfrage gerade begrenzt. Bitte später noch einmal.")
+                else -> throw UpdateException("GitHub antwortet mit Fehler $code.")
+            }
+        } finally { c.disconnect() }
         val tag = j.optString("tag_name")                    // z. B. "v1.7"
-        val version = tag.substringAfterLast('.').toIntOrNull() ?: throw UpdateException("Unbekannte Version „$tag“.")
+        val version = Regex("""^v?1\.(\d+)""").find(tag)?.groupValues?.get(1)?.toIntOrNull()
+            ?: throw UpdateException("Unbekannte Version „$tag“.")
         val assets = j.optJSONArray("assets")
         var api = ""; var url = ""
         for (i in 0 until (assets?.length() ?: 0)) {
@@ -107,32 +112,37 @@ object Updater {
 
     /** APK herunterladen (blockiert). [progress] bekommt 0..1 oder -1, wenn die Größe unbekannt ist. */
     fun download(ctx: Context, r: Release, progress: (Float) -> Unit): File {
-        // Über die API (funktioniert auch bei privaten Repos). GitHub leitet auf einen
-        // Speicher-Link um, der selbst schon berechtigt ist – dorthin ohne Zugangsschlüssel.
-        var c = open(r.assetApi, ctx, "application/octet-stream", auth = true)
+        // GitHub leitet auf einen Speicher-Link um; den Weiterleitungen von Hand folgen.
+        var c = open(r.assetApi, "application/octet-stream")
         var hops = 0
         while (c.responseCode in 301..308 && hops++ < 5) {
             val next = c.getHeaderField("Location") ?: break
             c.disconnect()
-            c = open(next, ctx, "application/octet-stream", auth = false)
+            c = open(next, "application/octet-stream")
         }
-        if (c.responseCode != 200) throw UpdateException("Download fehlgeschlagen (Fehler ${c.responseCode}).")
-        val total = c.contentLengthLong
         val dir = File(ctx.cacheDir, "update").apply { mkdirs() }
         val out = File(dir, ASSET)
-        c.inputStream.use { inp ->
-            out.outputStream().use { o ->
-                val buf = ByteArray(64 * 1024)
-                var done = 0L
-                while (true) {
-                    val n = inp.read(buf)
-                    if (n < 0) break
-                    o.write(buf, 0, n)
-                    done += n
-                    progress(if (total > 0) done.toFloat() / total else -1f)
+        try {
+            if (c.responseCode != 200) throw UpdateException("Download fehlgeschlagen (Fehler ${c.responseCode}).")
+            val total = c.contentLengthLong
+            var done = 0L
+            c.inputStream.use { inp ->
+                out.outputStream().use { o ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        o.write(buf, 0, n)
+                        done += n
+                        progress(if (total > 0) done.toFloat() / total else -1f)
+                    }
                 }
             }
-        }
+            if (total > 0 && done != total) throw UpdateException("Download unvollständig – bitte noch einmal versuchen.")
+        } catch (e: Exception) {
+            out.delete()
+            throw if (e is UpdateException) e else UpdateException("Download abgebrochen: ${e.message ?: "Verbindung verloren"}")
+        } finally { c.disconnect() }
         return out
     }
 
@@ -151,13 +161,35 @@ object Updater {
             if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
         }
         val id = pi.createSession(params)
-        pi.openSession(id).use { s ->
-            s.openWrite(ASSET, 0, apk.length()).use { o -> apk.inputStream().use { it.copyTo(o) }; s.fsync(o) }
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-            val intent = Intent(ctx, InstallReceiver::class.java)
-            s.commit(PendingIntent.getBroadcast(ctx, id, intent, flags).intentSender)
+        try {
+            pi.openSession(id).use { s ->
+                s.openWrite(ASSET, 0, apk.length()).use { o -> apk.inputStream().use { it.copyTo(o) }; s.fsync(o) }
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
+                val intent = Intent(ctx, InstallReceiver::class.java)
+                s.commit(PendingIntent.getBroadcast(ctx, id, intent, flags).intentSender)
+            }
+        } catch (e: Exception) {
+            try { pi.abandonSession(id) } catch (_: Exception) {}
+            throw UpdateException("Installation konnte nicht starten: ${e.message}")
         }
+    }
+
+    /** Hinweis in der Benachrichtigungsleiste, falls die Bestätigung im Hintergrund ankam. */
+    fun notifyConfirm(ctx: Context, confirm: Intent) {
+        val nm = ctx.getSystemService(android.app.NotificationManager::class.java)
+        nm.createNotificationChannel(android.app.NotificationChannel(
+            "eq_update", "App-Update", android.app.NotificationManager.IMPORTANCE_HIGH))
+        val pi = PendingIntent.getActivity(ctx, 7, confirm,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val n = android.app.Notification.Builder(ctx, "eq_update")
+            .setSmallIcon(R.drawable.ic_eq)
+            .setContentTitle("Equalizer-Update bereit")
+            .setContentText("Antippen, um das Update zu installieren")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .build()
+        try { nm.notify(7, n) } catch (_: SecurityException) {}
     }
 }
 
@@ -168,7 +200,13 @@ class InstallReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirm = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return
-                ctx.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                // Aus dem Hintergrund darf Android kein Fenster öffnen – dann merken und benachrichtigen
+                val shown = Updater.uiVisible && runCatching { ctx.startActivity(confirm) }.isSuccess
+                if (!shown) {
+                    Updater.pendingConfirm = confirm
+                    Updater.notifyConfirm(ctx, confirm)
+                }
             }
             PackageInstaller.STATUS_SUCCESS -> {}
             PackageInstaller.STATUS_FAILURE_ABORTED -> {}
@@ -185,6 +223,15 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
     private val main = Handler(Looper.getMainLooper())
     private var busy = false
 
+    /** Ergebnisse aus dem Hintergrund nur anzeigen, wenn das Fenster noch da ist (sonst Absturz). */
+    private fun ui(block: () -> Unit) = main.post {
+        busy = false
+        if (!a.isFinishing && !a.isDestroyed) block()
+    }
+
+    /** Beim Schließen der Ansicht: offene Rückmeldungen verwerfen. */
+    fun release() = main.removeCallbacksAndMessages(null)
+
     /** Sichtbare Suche (Knopf). */
     fun checkNow() {
         if (busy) return
@@ -192,18 +239,14 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
         ui.toast("Suche nach Update …")
         Thread {
             val res = runCatching { Updater.fetchLatest(a) }
-            main.post {
-                busy = false
+            ui {
                 onState()
                 res.onSuccess { offer(it, quietIfCurrent = false) }
                 res.onFailure { e ->
-                    val msg = (e as? Updater.UpdateException)?.message ?: "Keine Verbindung zu GitHub."
                     AlertDialog.Builder(a)
                         .setTitle("Update")
-                        .setMessage(msg)
-                        .apply { if (e.message?.contains("Zugang") == true)
-                            setPositiveButton("Zugang eintragen") { _, _ -> askToken() } }
-                        .setNegativeButton("Schließen", null)
+                        .setMessage((e as? Updater.UpdateException)?.message ?: "Keine Verbindung zu GitHub.")
+                        .setPositiveButton("OK", null)
                         .show()
                 }
             }
@@ -216,7 +259,7 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
         busy = true
         Thread {
             runCatching { Updater.fetchLatest(a) }
-            main.post { busy = false; onState() }
+            ui { onState() }
         }.start()
     }
 
@@ -243,19 +286,25 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
             .show()
     }
 
-    /** Für das Banner auf der Startseite: Release erneut holen und direkt anbieten. */
+    /** Für Banner und Kachel: Release erneut holen und direkt anbieten. */
     fun installLatest() {
         if (busy) return
         busy = true
         Thread {
             val res = runCatching { Updater.fetchLatest(a) }
-            main.post {
-                busy = false
+            ui {
                 res.onSuccess { offer(it, quietIfCurrent = false) }
                 res.onFailure { ui.toast(it.message ?: "Keine Verbindung zu GitHub") }
                 onState()
             }
         }.start()
+    }
+
+    /** Eine im Hintergrund angekommene Installations-Bestätigung jetzt zeigen. */
+    fun showPendingConfirm() {
+        val c = Updater.pendingConfirm ?: return
+        Updater.pendingConfirm = null
+        runCatching { a.startActivity(c) }
     }
 
     private fun startInstall(r: Updater.Release) {
@@ -298,7 +347,8 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
             }
             main.post {
                 busy = false
-                dlg.dismiss()
+                runCatching { dlg.dismiss() }
+                if (a.isFinishing || a.isDestroyed) return@post
                 res.onFailure { e ->
                     AlertDialog.Builder(a)
                         .setTitle("Update fehlgeschlagen")
@@ -308,38 +358,5 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
                 }
             }
         }.start()
-    }
-
-    /** GitHub-Zugang eintragen (für das private Repository). */
-    fun askToken() {
-        val input = EditText(a).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            hint = "github_pat_…"
-            setText(Updater.token(a))
-        }
-        val box = ui.vbox().apply {
-            setPadding(ui.dp(22), ui.dp(8), ui.dp(22), 0)
-            addView(ui.hint(
-                "Das Repository ist privat, deshalb braucht die App einen Lese-Zugang.\n\n" +
-                "Auf github.com: Settings → Developer settings → Personal access tokens → Fine-grained tokens → " +
-                "Generate new token. Bei „Repository access“ nur „${Updater.REPO}“ wählen, bei „Permissions“ " +
-                "→ Contents: Read-only. Ablaufdatum nach Wunsch. Den Token hier einfügen.\n\n" +
-                "Er wird nur auf diesem Handy gespeichert und nur an GitHub geschickt."
-            ))
-            addView(input, MATCH_PARENT, WRAP_CONTENT)
-        }
-        AlertDialog.Builder(a)
-            .setTitle("GitHub-Zugang")
-            .setView(box)
-            .setPositiveButton("Speichern & suchen") { _, _ ->
-                Updater.setToken(a, input.text.toString())
-                onState()
-                checkNow()
-            }
-            .setNeutralButton("Token anlegen") { _, _ ->
-                a.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/settings/personal-access-tokens/new")))
-            }
-            .setNegativeButton("Abbrechen", null)
-            .show()
     }
 }

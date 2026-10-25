@@ -45,11 +45,14 @@ class Prefs(context: Context) {
         get() = sp.getString("preset", CUSTOM) ?: CUSTOM
         set(v) = sp.edit().putString("preset", v).apply()
 
-    /** Aktueller Klangzustand. */
+    /** Aktueller Klangzustand (zwischengespeichert – beim Schieben wird er sehr oft gelesen). */
     var state: EqState
         get() {
-            sp.getString("state", null)?.let {
-                return try { EqState.fromJson(JSONObject(it)) } catch (e: Exception) { EqState() }
+            sp.getString("state", null)?.let { raw ->
+                cachedState?.let { (r, s) -> if (r == raw) return s }
+                val s = try { EqState.fromJson(JSONObject(raw)) } catch (e: Exception) { EqState() }
+                cachedState = raw to s
+                return s
             }
             // Übernahme der Einstellungen aus der vorigen App-Version
             val s = sp.getString("bands", "") ?: ""
@@ -62,10 +65,13 @@ class Prefs(context: Context) {
     // ---------- Eigene Profile ----------
 
     var profiles: List<Profile>
-        get() = try {
-            val arr = JSONArray(sp.getString("profiles", "[]"))
-            (0 until arr.length()).map { Profile.fromJson(arr.getJSONObject(it)) }
-        } catch (e: Exception) { emptyList() }
+        get() {
+            val raw = sp.getString("profiles", "[]") ?: "[]"
+            cachedProfiles?.let { (r, p) -> if (r == raw) return p }
+            val list = try { parseProfiles(JSONArray(raw)) } catch (e: Exception) { emptyList() }
+            cachedProfiles = raw to list
+            return list
+        }
         set(list) {
             val arr = JSONArray()
             list.forEach { arr.put(it.toJson()) }
@@ -87,6 +93,7 @@ class Prefs(context: Context) {
     }
 
     fun renameProfile(old: String, new: String) {
+        if (old == new) return
         profiles = profiles.filter { it.name != new }.map { if (it.name == old) it.copy(name = new) else it }
         deviceAssignments().filter { it.profile == old }.forEach { assignDevice(it.key, it.label, new) }
     }
@@ -96,7 +103,17 @@ class Prefs(context: Context) {
         val p = findProfile(name) ?: return false
         state = p.state
         presetName = PROFILE_PREFIX + name
+        profileLoads++
         return true
+    }
+
+    /** Freier Name: „Name“, sonst „Name (2)“, „Name (3)“ … */
+    fun uniqueName(base: String): String {
+        val names = profiles.map { it.name }.toSet()
+        if (base !in names) return base
+        var i = 2
+        while ("$base ($i)" in names) i++
+        return "$base ($i)"
     }
 
     /** Name des aktiven ★-Profils oder null. */
@@ -136,14 +153,27 @@ class Prefs(context: Context) {
         .put("profiles", JSONArray().also { a -> profiles.forEach { a.put(it.toJson()) } })
         .toString(2)
 
-    /** Liest exportierte Profile ein (gleichnamige werden ersetzt). Gibt die Anzahl zurück. */
-    fun importJson(text: String): Int {
+    /**
+     * Liest exportierte Profile ein (gleichnamige werden ersetzt). Kaputte Einträge werden übersprungen,
+     * auch eine einzelne Profil-Datei ohne Liste wird erkannt. Gibt die eingelesenen Namen zurück.
+     */
+    fun importJson(text: String): List<String> {
         val t = text.trim()
-        val arr = if (t.startsWith("[")) JSONArray(t) else JSONObject(t).getJSONArray("profiles")
-        val imported = (0 until arr.length()).map { Profile.fromJson(arr.getJSONObject(it)) }
+        val arr = if (t.startsWith("[")) JSONArray(t) else {
+            val o = JSONObject(t)
+            o.optJSONArray("profiles") ?: JSONArray().put(o)
+        }
+        // bei doppelten Namen in der Datei gewinnt der letzte
+        val imported = parseProfiles(arr).associateBy { it.name }.values.toList()
         val names = imported.map { it.name }.toSet()
         profiles = profiles.filter { it.name !in names } + imported
-        return imported.size
+        return imported.map { it.name }
+    }
+
+    private fun parseProfiles(arr: JSONArray): List<Profile> = (0 until arr.length()).mapNotNull { i ->
+        val o = arr.optJSONObject(i) ?: return@mapNotNull null
+        val name = o.optString("name").trim()
+        if (name.isEmpty()) null else runCatching { Profile(name, EqState.fromJson(o)) }.getOrNull()
     }
 
     // ---------- Kopfhörer-Zuordnung ----------
@@ -169,5 +199,15 @@ class Prefs(context: Context) {
         val all = deviceAssignments()
         val p = (all.firstOrNull { it.key == key } ?: all.firstOrNull { it.key == DEFAULT_DEVICE_KEY })?.profile
         return p?.takeIf { findProfile(it) != null }
+    }
+
+    companion object {
+        // Zwischenspeicher (gelten für alle Prefs-Instanzen im Prozess)
+        @Volatile private var cachedState: Pair<String, EqState>? = null
+        @Volatile private var cachedProfiles: Pair<String, List<Profile>>? = null
+
+        /** Zählt jedes Laden eines ★-Profils – die Oberfläche erkennt daran Wechsel von außen (Kachel, Widget …). */
+        @Volatile var profileLoads = 0
+            private set
     }
 }

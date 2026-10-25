@@ -27,7 +27,7 @@ class EqWidget : AppWidgetProvider() {
             }
             ACTION_NEXT, ACTION_PREV -> {
                 val name = if (intent.action == ACTION_NEXT) prefs.nextProfile() else prefs.prevProfile()
-                if (name != null) changed()
+                if (name != null) { changed(); EqService.profileSwitchListener?.invoke() }
             }
             ACTION_PLUS, ACTION_MINUS -> {
                 val step = if (intent.action == ACTION_PLUS) WIDGET_STEP else -WIDGET_STEP
