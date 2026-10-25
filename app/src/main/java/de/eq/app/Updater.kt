@@ -38,7 +38,10 @@ object Updater {
     private const val CHECK_EVERY_MS = 6 * 60 * 60 * 1000L
 
     /** Ergebnis einer Abfrage. */
-    data class Release(val version: Int, val name: String, val notes: String, val assetApi: String, val assetUrl: String)
+    data class Release(
+        val version: Int, val name: String, val notes: String, val assetApi: String, val assetUrl: String,
+        val size: Long = -1, val sha256: String? = null,
+    )
 
     class UpdateException(msg: String) : Exception(msg)
 
@@ -96,10 +99,15 @@ object Updater {
         val version = Regex("""^v?1\.(\d+)""").find(tag)?.groupValues?.get(1)?.toIntOrNull()
             ?: throw UpdateException("Unbekannte Version „$tag“.")
         val assets = j.optJSONArray("assets")
-        var api = ""; var url = ""
+        var api = ""; var url = ""; var size = -1L; var sha: String? = null
         for (i in 0 until (assets?.length() ?: 0)) {
             val a = assets!!.getJSONObject(i)
-            if (a.optString("name") == ASSET) { api = a.optString("url"); url = a.optString("browser_download_url") }
+            if (a.optString("name") == ASSET) {
+                api = a.optString("url"); url = a.optString("browser_download_url")
+                size = a.optLong("size", -1)
+                // GitHub liefert eine Prüfsumme „sha256:…“ mit
+                sha = a.optString("digest").takeIf { it.startsWith("sha256:") }?.removePrefix("sha256:")?.lowercase()
+            }
         }
         if (api.isEmpty()) throw UpdateException("Im Release fehlt die Datei $ASSET.")
         val notes = j.optString("body").substringBefore("Installieren:").trim()
@@ -107,11 +115,73 @@ object Updater {
             .putLong("last", System.currentTimeMillis())
             .putInt("newer", version)
             .apply()
-        return Release(version, j.optString("name").ifEmpty { "Equalizer 1.$version" }, notes, api, url)
+        return Release(version, j.optString("name").ifEmpty { "Equalizer 1.$version" }, notes, api, url, size, sha)
     }
 
-    /** APK herunterladen (blockiert). [progress] bekommt 0..1 oder -1, wenn die Größe unbekannt ist. */
+    // ---------- Heruntergeladene Dateien ----------
+
+    private fun dir(ctx: Context) = File(ctx.cacheDir, "update").apply { mkdirs() }
+    private fun apkFile(ctx: Context, version: Int) = File(dir(ctx), "Equalizer-1.$version.apk")
+
+    /** Passt die Datei genau zum Release (Größe und – falls bekannt – Prüfsumme)? */
+    private fun matches(f: File, size: Long, sha: String?): Boolean {
+        if (!f.isFile || f.length() == 0L) return false
+        if (size > 0 && f.length() != size) return false
+        if (sha != null && hashOf(f) != sha) return false
+        return true
+    }
+
+    // Prüfsumme nur neu rechnen, wenn sich die Datei geändert hat (die Anzeige fragt öfter nach)
+    private var hashCache: Pair<String, String>? = null
+    private fun hashOf(f: File): String {
+        val key = "${f.path}|${f.length()}|${f.lastModified()}"
+        hashCache?.let { (k, h) -> if (k == key) return h }
+        return sha256(f).also { hashCache = key to it }
+    }
+
+    private fun sha256(f: File): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        f.inputStream().use { inp ->
+            val buf = ByteArray(64 * 1024)
+            while (true) { val n = inp.read(buf); if (n < 0) break; md.update(buf, 0, n) }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** Liegt diese Version schon vollständig heruntergeladen vor? */
+    fun readyFile(ctx: Context, r: Release): File? = apkFile(ctx, r.version).takeIf { matches(it, r.size, r.sha256) }
+
+    /**
+     * Fertig heruntergeladene, noch nicht installierte Version – auch ohne Internet nutzbar
+     * (z. B. wenn die Installation abgebrochen wurde).
+     */
+    fun localRelease(ctx: Context): Release? {
+        val p = prefs(ctx)
+        val v = p.getInt("dlVersion", 0)
+        if (v <= installedVersion(ctx)) return null
+        val r = Release(v, "Equalizer 1.$v", p.getString("dlNotes", "") ?: "", "", "",
+            p.getLong("dlSize", -1), p.getString("dlSha", null))
+        return if (readyFile(ctx, r) != null) r else null
+    }
+
+    /**
+     * Aufräumen: alte Installationsdateien und abgebrochene Downloads löschen. Behalten wird nur
+     * eine vollständige Datei einer Version, die neuer ist als die installierte.
+     */
+    fun cleanup(ctx: Context) {
+        val keep = localRelease(ctx)?.let { apkFile(ctx, it.version) }
+        dir(ctx).listFiles()?.forEach { if (it != keep) it.delete() }
+        if (keep == null) prefs(ctx).edit().remove("dlVersion").remove("dlSize").remove("dlSha").remove("dlNotes").apply()
+    }
+
+    /**
+     * APK herunterladen (blockiert). Liegt die Version schon vollständig vor, wird sie direkt verwendet.
+     * [progress] bekommt 0..1 oder -1, wenn die Größe unbekannt ist.
+     */
     fun download(ctx: Context, r: Release, progress: (Float) -> Unit): File {
+        readyFile(ctx, r)?.let { progress(1f); return it }
+        // andere Versionen und Reste abgebrochener Downloads weg
+        dir(ctx).listFiles()?.forEach { it.delete() }
         // GitHub leitet auf einen Speicher-Link um; den Weiterleitungen von Hand folgen.
         var c = open(r.assetApi, "application/octet-stream")
         var hops = 0
@@ -120,14 +190,14 @@ object Updater {
             c.disconnect()
             c = open(next, "application/octet-stream")
         }
-        val dir = File(ctx.cacheDir, "update").apply { mkdirs() }
-        val out = File(dir, ASSET)
+        val out = apkFile(ctx, r.version)
+        val part = File(out.path + ".part")    // erst nach vollständiger Prüfung umbenennen
         try {
             if (c.responseCode != 200) throw UpdateException("Download fehlgeschlagen (Fehler ${c.responseCode}).")
             val total = c.contentLengthLong
             var done = 0L
             c.inputStream.use { inp ->
-                out.outputStream().use { o ->
+                part.outputStream().use { o ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {
                         val n = inp.read(buf)
@@ -139,7 +209,14 @@ object Updater {
                 }
             }
             if (total > 0 && done != total) throw UpdateException("Download unvollständig – bitte noch einmal versuchen.")
+            if (!matches(part, r.size, r.sha256)) throw UpdateException("Die heruntergeladene Datei ist beschädigt – bitte noch einmal versuchen.")
+            if (!part.renameTo(out)) throw UpdateException("Datei konnte nicht gespeichert werden.")
+            prefs(ctx).edit()
+                .putInt("dlVersion", r.version).putLong("dlSize", r.size)
+                .putString("dlSha", r.sha256).putString("dlNotes", r.notes)
+                .apply()
         } catch (e: Exception) {
+            part.delete()
             out.delete()
             throw if (e is UpdateException) e else UpdateException("Download abgebrochen: ${e.message ?: "Verbindung verloren"}")
         } finally { c.disconnect() }
@@ -243,6 +320,8 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
                 onState()
                 res.onSuccess { offer(it, quietIfCurrent = false) }
                 res.onFailure { e ->
+                    // Keine Verbindung, aber das Update liegt schon fertig vor → trotzdem anbieten
+                    Updater.localRelease(a)?.let { offer(it, quietIfCurrent = false); return@onFailure }
                     AlertDialog.Builder(a)
                         .setTitle("Update")
                         .setMessage((e as? Updater.UpdateException)?.message ?: "Keine Verbindung zu GitHub.")
@@ -258,6 +337,7 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
         if (busy || !Updater.dueForCheck(a)) return
         busy = true
         Thread {
+            runCatching { Updater.cleanup(a) }
             runCatching { Updater.fetchLatest(a) }
             ui { onState() }
         }.start()
@@ -274,14 +354,16 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
                 .show()
             return
         }
+        val ready = Updater.readyFile(a, r) != null
         AlertDialog.Builder(a)
             .setTitle("${r.name} ist da")
             .setMessage(buildString {
                 append("Installiert: 1.$mine  →  neu: 1.${r.version}")
+                if (ready) append("\nBereits heruntergeladen – wird direkt installiert.")
                 if (r.notes.isNotBlank()) append("\n\n").append(r.notes.take(1500))
                 append("\n\nProfile und Einstellungen bleiben erhalten.")
             })
-            .setPositiveButton("Jetzt installieren") { _, _ -> startInstall(r) }
+            .setPositiveButton(if (ready) "Installieren" else "Jetzt installieren") { _, _ -> startInstall(r) }
             .setNegativeButton("Später", null)
             .show()
     }
@@ -294,7 +376,11 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
             val res = runCatching { Updater.fetchLatest(a) }
             ui {
                 res.onSuccess { offer(it, quietIfCurrent = false) }
-                res.onFailure { ui.toast(it.message ?: "Keine Verbindung zu GitHub") }
+                res.onFailure { e ->
+                    val local = Updater.localRelease(a)
+                    if (local != null) offer(local, quietIfCurrent = false)
+                    else ui.toast(e.message ?: "Keine Verbindung zu GitHub")
+                }
                 onState()
             }
         }.start()

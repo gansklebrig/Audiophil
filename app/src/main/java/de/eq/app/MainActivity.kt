@@ -419,7 +419,7 @@ class MainActivity : Activity() {
         grid.addView(ui.row(tile(PAGE_HEARING, "◐", "Hörprofil"), room))
         grid.addView(ui.row(tile(PAGE_PHONES, "∩", "Kopfhörer"), tile(PAGE_PROFILES, "★", "Profile")))
         val (upd, updSub) = ui.tile("⇣", "Update") {
-            if (Updater.knownNewer(this) > 0) updater.installLatest() else updater.checkNow()
+            if (Updater.knownNewer(this) > 0 || Updater.localRelease(this) != null) updater.installLatest() else updater.checkNow()
         }
         tileSubs[PAGE_UPDATE] = updSub
         grid.addView(ui.row(tile(PAGE_SETTINGS, "☰", "Einstellungen"), upd))
@@ -514,9 +514,10 @@ class MainActivity : Activity() {
     private fun renderUpdate() {
         if (!built) return
         val mine = Updater.installedVersion(this)
-        val newer = Updater.knownNewer(this)
+        val local = Updater.localRelease(this)?.version ?: 0
+        val newer = maxOf(Updater.knownNewer(this), local)
         updateBanner.visibility = if (newer > 0) View.VISIBLE else View.GONE
-        updateBannerText.text = "Update 1.$newer ist da"
+        updateBannerText.text = if (local >= newer && local > 0) "Update 1.$newer bereit" else "Update 1.$newer ist da"
         tileSubs[PAGE_UPDATE]?.text = if (newer > 0) "Neu: 1.$newer" else "Version 1.$mine"
         tileSubs[PAGE_UPDATE]?.setTextColor(if (newer > 0) Palette.goldLight else Palette.muted)
         updateInfo?.text = if (newer > 0) "Installiert: 1.$mine  ·  verfügbar: 1.$newer" else "Installiert: Version 1.$mine"
