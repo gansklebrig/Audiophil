@@ -90,6 +90,16 @@ class MainActivity : Activity() {
     private lateinit var updateBannerText: TextView
     private var updateInfo: TextView? = null
     private var seenProfileLoads = -1
+
+    // Profil je App, Spielraum, Einstieg
+    private lateinit var appSwitchView: Switch
+    private lateinit var appsBox: LinearLayout
+    private var appsKey = ""
+    private val appSpinners = LinkedHashMap<String, Spinner>()
+    private var headroomSwitch: Switch? = null
+    private var headroomInfo: TextView? = null
+    private lateinit var introCard: LinearLayout
+    private val introSteps = ArrayList<Pair<TextView, () -> Boolean>>()
     private var autoUpdateSwitch: Switch? = null
 
     // Der Klang-Bereich (Kurve bzw. Bänder) wandert zwischen Startseite und Equalizer-Seite
@@ -295,7 +305,7 @@ class MainActivity : Activity() {
         addPage(PAGE_EQ, "Equalizer") { buildEqPage(it) }
         addPage(PAGE_VOLUME, "Lautstärke & Dynamik") { buildVolumePage(it) }
         addPage(PAGE_HEARING, "Hörprofil") { buildHearingPage(it) }
-        addPage(PAGE_PHONES, "Kopfhörer") { buildPhonesPage(it) }
+        addPage(PAGE_PHONES, "Kopfhörer & Apps") { buildPhonesPage(it) }
         addPage(PAGE_PROFILES, "Profile") { buildProfilesPage(it) }
         addPage(PAGE_SETTINGS, "Einstellungen") { buildSettingsPage(it) }
         return host
@@ -353,6 +363,7 @@ class MainActivity : Activity() {
             ))
         }
         homeBody.addView(updateBanner)
+        homeBody.addView(buildIntro())
 
         // Profil
         val pc = ui.card("Profil")
@@ -535,7 +546,8 @@ class MainActivity : Activity() {
             else -> "Ausgeschaltet"
         }
         tileSubs[PAGE_ROOM]?.text = if (!dpSupported) "Ab Android 9" else "Automatisch per Mikrofon"
-        tileSubs[PAGE_PHONES]?.text = currentDevice().label
+        val apps = prefs.seenApps().count { prefs.profileForApp(it.first) != null }
+        tileSubs[PAGE_PHONES]?.text = currentDevice().label + if (apps > 0) " · $apps App(s)" else ""
         val n = prefs.profileNames().size
         tileSubs[PAGE_PROFILES]?.text = if (n == 0) "Noch keine gespeichert" else "$n gespeichert"
         tileSubs[PAGE_SETTINGS]?.text = if (prefs.global) "Globaler Modus" else "App-Modus"
@@ -897,6 +909,23 @@ class MainActivity : Activity() {
             return
         }
 
+        // Automatischer Spielraum
+        val hr = ui.card("Spielraum")
+        headroomSwitch = ui.switch("Automatisch Platz schaffen") { on ->
+            prefs.autoHeadroom = on
+            EqService.instance?.applyAll()
+            updateLoudInfo()
+        }
+        hr.addView(headroomSwitch)
+        headroomInfo = ui.hint("").apply { setTextColor(Palette.gold) }
+        hr.addView(headroomInfo)
+        hr.addView(ui.hint(
+            "Addieren sich Anhebungen (EQ, Hörkorrektur, Lautheitsausgleich) über 0 dB, wird der Pegel davor " +
+            "genau um diesen Betrag gesenkt – so verzerrt nichts. Fehlende Lautstärke gleichst du mit dem Boost aus; " +
+            "der Limiter fängt dann nur noch Spitzen ab."
+        ))
+        p.addView(hr)
+
         // Limiter
         val lim = ui.card("Limiter")
         limiterSwitch = ui.switch("Spitzen abfangen (kein Knacken)") { on -> update { it.copy(limiter = on) } }
@@ -995,6 +1024,7 @@ class MainActivity : Activity() {
 
     /** Zeigt, was der Lautheitsausgleich bei der aktuellen Handy-Lautstärke gerade anhebt. */
     private fun updateLoudInfo() {
+        updateHeadroomInfo()
         val info = loudInfo ?: return
         val s = st
         val vol = EqService.instance?.musicVolume() ?: run {
@@ -1192,6 +1222,111 @@ class MainActivity : Activity() {
             "Geräte“ schützt davor, dass ein hoher Boost versehentlich auf lauten Kopfhörern landet."
         ))
         p.addView(au)
+
+        val ap = ui.card("Profil je App")
+        appSwitchView = ui.switch("Beim Start einer Musik-App ihr Profil laden") { on -> prefs.appSwitch = on }
+        ap.addView(appSwitchView)
+        appsBox = ui.vbox()
+        ap.addView(appsBox)
+        ap.addView(ui.hint(
+            "Musik-Apps melden sich, sobald sie spielen, und erscheinen dann hier. Wählst du für eine App ein " +
+            "★-Profil, wird es beim Abspielen geladen; danach geht es zurück zum Kopfhörer- bzw. vorigen Profil. " +
+            "Klappt nur bei Apps, die ihren Ton melden (z. B. Spotify, YouTube Music, Poweramp, VLC)."
+        ))
+        p.addView(ap)
+    }
+
+    /** Liste der bekannten Musik-Apps mit Profil-Auswahl (nur neu bauen, wenn sich etwas geändert hat). */
+    private fun renderApps() {
+        val apps = prefs.seenApps()
+        val names = prefs.profileNames()
+        val key = apps.joinToString { it.first } + "|" + names.joinToString()
+        val items = listOf("— keins —") + names.map { PROFILE_PREFIX + it }
+        if (key != appsKey) {
+            appsKey = key
+            appsBox.removeAllViews()
+            appSpinners.clear()
+            if (apps.isEmpty()) appsBox.addView(ui.hint("Noch keine Musik-App erkannt – spiel kurz Musik in deiner App ab.")
+                .apply { setTextColor(Palette.champagne) })
+            apps.forEach { (pkg, label) ->
+                val sp = ui.choice { pos ->
+                    prefs.assignApp(pkg, names.getOrNull(pos - 1))
+                    updateTiles()
+                }.apply { layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1.2f) }
+                appSpinners[pkg] = sp
+                val name = TextView(this).apply {
+                    text = label; textSize = 14f; setTextColor(Palette.champagne)
+                    layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+                }
+                val forget = ui.iconButton("✕") {
+                    prefs.forgetApp(pkg)
+                    renderApps(); updateTiles()
+                }.apply { textSize = 13f }
+                appsBox.addView(ui.row(name, sp, forget))
+            }
+        }
+        // Auswahl je App aktualisieren
+        appSpinners.forEach { (pkg, sp) ->
+            val cur = prefs.profileForApp(pkg)
+            ui.setChoices(sp, items, cur?.let { names.indexOf(it) + 1 } ?: 0)
+        }
+    }
+
+    /** Aktueller automatischer Spielraum (gleiche Rechnung wie im Dienst). */
+    private fun updateHeadroomInfo() {
+        val info = headroomInfo ?: return
+        val s = st
+        val parametric = s.mode == MODE_PARAMETRIC && dpSupported
+        val vol = EqService.instance?.musicVolume() ?: 1f
+        val graphicMax = if (!parametric) (s.bands.maxOrNull() ?: 0).coerceAtLeast(0) / 100f else 0f
+        val peak = ParamEq.peakDb(s, parametric, ParamEq.loudnessFilters(s.loudComp, vol), graphicMax)
+        info.text = when {
+            !prefs.autoHeadroom -> if (peak > 0.05f) "Aus – die Kurve ragt gerade %.1f dB über 0 dB".format(peak) else "Aus"
+            peak < 0.05f -> "Gerade nicht nötig – nichts ragt über 0 dB"
+            else -> "Gerade: Pegel %.1f dB gesenkt".format(-peak)
+        }
+    }
+
+    // ----- Einstieg -----
+
+    /** Karte „Erste Schritte“ – verschwindet, wenn alles erledigt oder ausgeblendet ist. */
+    private fun buildIntro(): View {
+        introCard = ui.card("Erste Schritte")
+        fun step(text: String, done: () -> Boolean, go: () -> Unit) {
+            val t = TextView(this).apply {
+                textSize = 14f
+                setPadding(0, ui.dp(10), 0, ui.dp(10))
+                setOnClickListener { go() }
+            }
+            t.tag = text
+            introSteps += t to done
+            introCard.addView(t)
+        }
+        step("Equalizer einschalten", { prefs.enabled }) { if (!prefs.enabled) togglePower() }
+        step("Kopfhörer-Korrektur wählen (AutoEq) oder ein Profil speichern", { prefs.profiles.isNotEmpty() }) { openPage(PAGE_PHONES) }
+        if (dpSupported) step("Hörtest machen", { prefs.profiles.any { it.state.hearing.isNotEmpty() } || st.hearing.isNotEmpty() }) {
+            openPage(PAGE_HEARING)
+        }
+        introCard.addView(TextView(this).apply {
+            text = "Ausblenden"
+            textSize = 13f
+            setTextColor(Palette.muted)
+            setPadding(0, ui.dp(8), 0, ui.dp(4))
+            setOnClickListener { prefs.introHidden = true; renderIntro() }
+        })
+        return introCard
+    }
+
+    private fun renderIntro() {
+        if (!::introCard.isInitialized) return
+        var all = true
+        introSteps.forEachIndexed { i, (t, done) ->
+            val ok = done()
+            if (!ok) all = false
+            t.text = (if (ok) "✓  " else "${i + 1}  ") + (t.tag as String) + (if (ok) "" else "  ›")
+            t.setTextColor(if (ok) Palette.muted else Palette.goldLight)
+        }
+        introCard.visibility = if (prefs.introHidden || all) View.GONE else View.VISIBLE
     }
 
     private fun currentDevice(): OutDevice = EqService.instance?.currentDevice ?: AudioDevices.current(this)
@@ -1459,6 +1594,10 @@ class MainActivity : Activity() {
         bindFilter()
         refreshEntries()
         renderDevices()
+        renderApps()
+        renderIntro()
+        appSwitchView.isChecked = prefs.appSwitch
+        headroomSwitch?.isChecked = prefs.autoHeadroom
         updateStatus()
         updateTiles()
         renderUpdate()

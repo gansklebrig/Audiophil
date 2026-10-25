@@ -15,10 +15,7 @@ class SessionReceiver : BroadcastReceiver() {
 
         val service = EqService.instance
         if (service != null) {
-            when (intent.action) {
-                AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> service.addSession(session)
-                AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> service.removeSession(session)
-            }
+            service.handleSessionIntent(intent)
         } else if (intent.action == AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION) {
             try {
                 EqService.start(context, intent)

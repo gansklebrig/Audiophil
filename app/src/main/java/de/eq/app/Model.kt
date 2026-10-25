@@ -6,6 +6,8 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.log10
+import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -273,6 +275,56 @@ object ParamEq {
     fun centers(cut: FloatArray) = DoubleArray(cut.size) { i ->
         val lo = if (i == 0) cut[0] * cut[0] / cut[1] else cut[i - 1]
         sqrt(lo.toDouble() * cut[i])
+    }
+
+    /**
+     * Bandgrenzen so verschieben, dass jeder schmale Glockenfilter (Q ≥ 2) genau in einer Bandmitte liegt.
+     * Abgetastet wird die Kurve in der Bandmitte – ohne Ausrichtung träfe man die Spitze einer schmalen
+     * Absenkung meist nicht und sie fiele 1–3 dB zu flach aus.
+     */
+    fun alignedCutoffs(base: FloatArray, filters: List<PFilter>): FloatArray {
+        val cut = base.copyOf()
+        val n = cut.size
+        if (n < 4) return cut
+        val used = BooleanArray(n)
+        val narrow = filters
+            .filter { it.on && it.type == FilterType.PEAK && it.q >= 2f && abs(it.gain) >= 1f }
+            .sortedByDescending { abs(it.gain) }
+        for (f in narrow) {
+            val c = centers(cut)
+            val fc = f.freq.toDouble()
+            // nächstgelegenes, noch freies Band (nicht das erste/letzte)
+            var best = -1; var bestD = Double.MAX_VALUE
+            for (i in 1 until n - 1) {
+                if (used[i - 1] || used[i] || used[i + 1]) continue
+                val d = abs(ln(c[i] / fc))
+                if (d < bestD) { bestD = d; best = i }
+            }
+            if (best < 0 || bestD > ln(2.0)) continue
+            val r = fc / c[best]
+            val lo = cut[best - 1] * r
+            val hi = cut[best] * r
+            val prev = if (best >= 2) cut[best - 2].toDouble() else 10.0
+            if (lo <= prev * 1.01 || hi >= cut[best + 1] / 1.01) continue
+            cut[best - 1] = lo.toFloat()
+            cut[best] = hi.toFloat()
+            used[best - 1] = true; used[best] = true; used[best + 1] = true
+        }
+        return cut
+    }
+
+    /**
+     * Wie weit die Gesamtkurve über 0 dB hinausgeht (beide Kanäle, 20 Hz – 20 kHz), in dB ≥ 0.
+     * [graphicMaxDb] = höchste Anhebung des Band-EQ, der außerhalb dieser Kurve läuft.
+     */
+    fun peakDb(s: EqState, parametric: Boolean, loud: List<PFilter>, graphicMaxDb: Float = 0f): Float {
+        var peak = if (parametric) 0.0 else graphicMaxDb.toDouble()
+        val extra = if (parametric) 0.0 else graphicMaxDb.toDouble()
+        for (i in 0..160) {
+            val f = 20.0 * 1000.0.pow(i / 160.0)
+            for (ch in 0..1) peak = max(peak, totalDb(s, f, ch, parametric, loud) + extra)
+        }
+        return peak.coerceAtLeast(0.0).toFloat()
     }
 
     /** Verstärkung je Band für Kanal [ch]. */

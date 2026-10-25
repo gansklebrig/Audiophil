@@ -137,14 +137,65 @@ class EqService : Service() {
         return START_STICKY
     }
 
-    private fun handleSessionIntent(i: Intent) {
+    /** Session einer Musik-App geöffnet/geschlossen (auch vom Manifest-Empfänger aufgerufen). */
+    fun handleSessionIntent(i: Intent) {
         val session = i.getIntExtra(AudioEffect.EXTRA_AUDIO_SESSION, -1)
         if (session <= 0) return
+        val pkg = i.getStringExtra(AudioEffect.EXTRA_PACKAGE_NAME)
         when (i.action) {
-            AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> addSession(session)
-            AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> removeSession(session)
+            AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION -> {
+                if (pkg != null) { sessionApps[session] = pkg; onAppStarted(pkg) }
+                addSession(session)
+            }
+            AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION -> {
+                removeSession(session)
+                (pkg ?: sessionApps[session])?.let { onAppStopped(it) }
+                sessionApps.remove(session)
+            }
         }
     }
+
+    // ---------- Profil je App ----------
+
+    private val sessionApps = HashMap<Int, String>()
+    /** App, deren Profil gerade aktiv ist, und das Profil davor (zum Zurückschalten). */
+    private var appOverride: String? = null
+    private var beforeApp: String? = null
+
+    private fun onAppStarted(pkg: String) {
+        if (pkg == packageName) return
+        prefs.noteApp(pkg, appLabel(pkg))
+        if (!prefs.appSwitch) return
+        val target = prefs.profileForApp(pkg) ?: return
+        if (appOverride == null) beforeApp = prefs.currentProfileName()
+        appOverride = pkg
+        if (target != prefs.currentProfileName() && prefs.loadProfile(target)) {
+            applyNow()
+            toast("„$target“ für ${appLabel(pkg)}")
+            profileSwitchListener?.invoke()
+            notifyUi()
+        }
+    }
+
+    private fun onAppStopped(pkg: String) {
+        if (appOverride != pkg) return
+        // läuft dieselbe App noch auf einer anderen Session, Profil behalten
+        if (sessionApps.values.count { it == pkg } > 1) return
+        appOverride = null
+        // zurück zum Profil des Kopfhörers bzw. zum vorher aktiven
+        val back = (if (prefs.autoSwitch) prefs.profileForDevice(currentDevice?.key ?: "") else null) ?: beforeApp
+        beforeApp = null
+        if (back != null && back != prefs.currentProfileName() && prefs.loadProfile(back)) {
+            applyNow()
+            toast("Zurück zu „$back“")
+            profileSwitchListener?.invoke()
+            notifyUi()
+        }
+    }
+
+    private fun appLabel(pkg: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) { pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() } }
 
     // ---------- Kopfhörer-Automatik ----------
 
@@ -325,7 +376,8 @@ class EqService : Service() {
 
     private fun applyDynamics(dp: DynamicsProcessing, fx: Fx, s: EqState, parametric: Boolean) {
         if (Build.VERSION.SDK_INT < 28) return
-        val cutoffs = fx.cutoffs
+        // Bandgrenzen so legen, dass schmale Filter genau getroffen werden
+        val cutoffs = if (parametric) ParamEq.alignedCutoffs(fx.cutoffs, s.filters) else fx.cutoffs
         val loud = ParamEq.loudnessFilters(s.loudComp, musicVolume())
         val eqActive = parametric || s.hearingActive || loud.isNotEmpty()
 
@@ -363,13 +415,28 @@ class EqService : Service() {
             DynamicsProcessing.Limiter(true, s.limiter, 0, 1f, 60f, 50f, s.limiterThreshold, 0f)
         )
 
-        // Lautstärke-Boost + Balance als Eingangsverstärkung je Kanal
+        // Automatischer Spielraum: ragt die Gesamtkurve über 0 dB, den Pegel davor um genau so viel senken
+        val head = headroomDb(s, parametric, loud, fx)
+        lastHeadroom = head
+
+        // Lautstärke-Boost + Balance (+ Spielraum) als Eingangsverstärkung je Kanal
         val boost = s.loudness / 100f
         val (left, right) = balanceDb(s.balance)
-        dp.setInputGainbyChannel(0, boost + left)
-        dp.setInputGainbyChannel(1, boost + right)
+        dp.setInputGainbyChannel(0, boost + left + head)
+        dp.setInputGainbyChannel(1, boost + right + head)
 
-        dp.enabled = eqActive || s.limiter || s.loudness > 0 || s.balance != 0 || (fx.hasMbc && s.night > 0)
+        dp.enabled = eqActive || s.limiter || s.loudness > 0 || s.balance != 0 || head < 0f || (fx.hasMbc && s.night > 0)
+    }
+
+    /** Zuletzt angewendeter automatischer Spielraum in dB (≤ 0) – für die Anzeige. */
+    var lastHeadroom = 0f
+        private set
+
+    private fun headroomDb(s: EqState, parametric: Boolean, loud: List<PFilter>, fx: Fx): Float {
+        if (!prefs.autoHeadroom) return 0f
+        // Der Band-EQ läuft als eigener Effekt davor – seine höchste Anhebung zählt mit
+        val graphicMax = if (!parametric && fx.eq != null) (s.bands.maxOrNull() ?: 0).coerceAtLeast(0) / 100f else 0f
+        return -ParamEq.peakDb(s, parametric, loud, graphicMax)
     }
 
     /** Balance → Absenkung des jeweils anderen Kanals in dB. */

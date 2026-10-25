@@ -102,6 +102,14 @@ Beim ersten Update fragt Android, ob der Equalizer Apps installieren darf → er
 - Ein Profil enthält alles: EQ-Art, Bänder, Filter, Boost, Limiter, Balance.
 - Export/Import als JSON-Datei (z. B. für ein neues Handy).
 
+### Profil je App
+- Musik-Apps melden sich beim Abspielen und erscheinen unter „Kopfhörer & Apps“. Einer App ein ★-Profil
+  zuordnen → es wird beim Abspielen geladen, danach geht es zurück zum Kopfhörer- bzw. vorigen Profil.
+
+### Automatischer Spielraum
+- Ragt die Gesamtkurve (EQ + Hörkorrektur + Lautheitsausgleich) über 0 dB, wird der Pegel davor genau
+  um diesen Betrag gesenkt – keine Verzerrung. Lautstärke → Spielraum, abschaltbar.
+
 ### Kopfhörer-Automatik
 - Jedem Bluetooth-/USB-Kopfhörer (oder „Kabelkopfhörer“) ein ★-Profil zuordnen – beim Verbinden
   wird es automatisch aktiviert. Zusätzlich ein Profil „für alle anderen Geräte“.

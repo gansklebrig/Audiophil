@@ -13,6 +13,14 @@
     <!-- Live-Spektrum (Android koppelt die Klanganalyse an diese Berechtigung) und Boxen einmessen -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Namen der Musik-Apps anzeigen (Profil je App) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

@@ -96,6 +96,9 @@ class Prefs(context: Context) {
         if (old == new) return
         profiles = profiles.filter { it.name != new }.map { if (it.name == old) it.copy(name = new) else it }
         deviceAssignments().filter { it.profile == old }.forEach { assignDevice(it.key, it.label, new) }
+        val o = appsJson()
+        o.keys().asSequence().toList().forEach { k -> o.optJSONObject(k)?.let { if (it.optString("profile") == old) it.put("profile", new) } }
+        sp.edit().putString("apps", o.toString()).apply()
     }
 
     /** Profil laden und als aktiv markieren. */
@@ -138,6 +141,59 @@ class Prefs(context: Context) {
         val next = names[((start + dir) % names.size + names.size) % names.size]
         loadProfile(next)
         return next
+    }
+
+    /** Einstiegs-Karte auf der Startseite ausgeblendet. */
+    var introHidden: Boolean
+        get() = sp.getBoolean("introHidden", false)
+        set(v) = sp.edit().putBoolean("introHidden", v).apply()
+
+    /** Vorverstärkung automatisch senken, wenn sich Anhebungen addieren. */
+    var autoHeadroom: Boolean
+        get() = sp.getBoolean("autoHeadroom", true)
+        set(v) = sp.edit().putBoolean("autoHeadroom", v).apply()
+
+    // ---------- Profil je App ----------
+
+    /** Beim Start einer Musik-App automatisch deren ★-Profil laden. */
+    var appSwitch: Boolean
+        get() = sp.getBoolean("appSwitch", true)
+        set(v) = sp.edit().putBoolean("appSwitch", v).apply()
+
+    private fun appsJson() = try { JSONObject(sp.getString("apps", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+
+    /** Musik-Apps, die schon einmal Ton gemeldet haben: Paketname → Anzeigename. */
+    fun seenApps(): List<Pair<String, String>> {
+        val o = appsJson()
+        return o.keys().asSequence().map { k -> k to (o.optJSONObject(k)?.optString("label", k) ?: k) }
+            .sortedBy { it.second.lowercase() }.toList()
+    }
+
+    /** App vormerken (und ihren Namen aktualisieren). */
+    fun noteApp(pkg: String, label: String) {
+        val o = appsJson()
+        val e = o.optJSONObject(pkg) ?: JSONObject()
+        if (e.optString("label") == label && o.has(pkg)) return
+        o.put(pkg, e.put("label", label))
+        sp.edit().putString("apps", o.toString()).apply()
+    }
+
+    fun profileForApp(pkg: String): String? =
+        appsJson().optJSONObject(pkg)?.optString("profile", "")?.takeIf { it.isNotEmpty() && findProfile(it) != null }
+
+    /** Profil einer App zuordnen; null entfernt die Zuordnung. */
+    fun assignApp(pkg: String, profile: String?) {
+        val o = appsJson()
+        val e = o.optJSONObject(pkg) ?: JSONObject().put("label", pkg)
+        if (profile == null) e.remove("profile") else e.put("profile", profile)
+        o.put(pkg, e)
+        sp.edit().putString("apps", o.toString()).apply()
+    }
+
+    fun forgetApp(pkg: String) {
+        val o = appsJson()
+        o.remove(pkg)
+        sp.edit().putString("apps", o.toString()).apply()
     }
 
     /** Merkt sich, ob das Live-Spektrum angezeigt werden soll. */
