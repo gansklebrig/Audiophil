@@ -11,15 +11,30 @@ android {
         applicationId = "de.eq.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // Auf GitHub zählt jeder Build die Versionsnummer hoch, damit Android ihn als Update erkennt
+        val run = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInt()
+        versionCode = 100 + run
+        versionName = "1.$run"
+    }
+
+    // Fester Schlüssel aus dem Repo: Builds von GitHub und aus Android Studio
+    // lassen sich so gegenseitig als Update drüberinstallieren.
+    signingConfigs {
+        create("eq") {
+            storeFile = rootProject.file("keystore/equalizer.jks")
+            storePassword = "equalizer-gold"
+            keyAlias = "equalizer"
+            keyPassword = "equalizer-gold"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("eq")
+        }
         release {
             isMinifyEnabled = false
-            // Zum einfachen Installieren mit dem Debug-Schlüssel signieren
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("eq")
         }
     }
 

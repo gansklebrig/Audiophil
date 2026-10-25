@@ -4,11 +4,30 @@ Systemweiter Equalizer im Schwarz-Gold-Design – wahlweise als Band-EQ oder par
 mit eigenen Profilen, Hörtest, Lautstärke-Boost, Limiter, Balance, Lautheitsausgleich, Nachtmodus,
 Kopfhörer-Automatik, AutoEq-Import, Live-Spektrum und Homescreen-Widget.
 
-## APK bauen
+## Aufs Handy installieren (ohne Android Studio)
+Bei jedem Push baut GitHub die App automatisch (`.github/workflows/apk.yml`).
+1. Auf dem Handy **github.com/gansklebrig/Equalizer/releases/latest** öffnen (bei GitHub angemeldet, das Repo ist privat).
+2. **Equalizer.apk** antippen, herunterladen, öffnen, „Installieren“.
+   Beim ersten Mal fragt Android, ob der Browser Apps installieren darf → erlauben.
+3. Neue Versionen werden genauso einfach drüberinstalliert – Profile und Einstellungen bleiben.
+
+Signiert wird mit dem festen Schlüssel `keystore/equalizer.jks`, auch beim Bauen in Android Studio.
+Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss einmal deinstalliert werden
+(vorher Profile → Exportieren, danach wieder importieren).
+
+## Selbst bauen (Android Studio)
 1. Android Studio installieren: https://developer.android.com/studio
-2. Ordner `EqualizerApp` öffnen (File → Open – den Ordner, nicht eine einzelne Datei). Gradle-Sync abwarten.
-3. Handy per USB verbinden (USB-Debugging an) und ▶ Run drücken –
-   oder Build → Build APK(s) und die APK unter `app/build/outputs/apk/` aufs Handy kopieren.
+2. Ordner öffnen (File → Open). Gradle-Sync abwarten.
+3. Handy per USB verbinden (USB-Debugging an) und ▶ Run drücken.
+
+## Oberfläche
+- **Startseite**: Ein/Aus, Profil, Klangkurve bzw. Frequenzbänder mit ↶ ↷ und Vorher/Nachher,
+  Lautstärke-Boost und sechs Kacheln, die jeweils den aktuellen Stand zeigen.
+- **Untermenüs** (Kachel antippen, Zurück-Taste oder ‹ führt zurück):
+  Equalizer (Art, Spektrum, Filter, Vorverstärkung) · Lautstärke (Schrittweite, Limiter, Balance,
+  Lautheitsausgleich, Nachtmodus) · Hörprofil (Hörtest, Stärke) · Kopfhörer (AutoEq, Automatik) ·
+  Profile (Speichern, Umbenennen, Export/Import, Zurücksetzen) · Einstellungen (Global-Modus,
+  Akku, Benachrichtigung, Schnellzugriff).
 
 ## Funktionen
 
