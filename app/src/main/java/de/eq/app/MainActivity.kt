@@ -84,6 +84,14 @@ class MainActivity : Activity() {
     private var openPage = NO_PAGE
     private val tileSubs = HashMap<Int, TextView>()
 
+    // Update aus der App
+    private lateinit var updater: UpdateUi
+    private lateinit var updateBanner: LinearLayout
+    private lateinit var updateBannerText: TextView
+    private var updateInfo: TextView? = null
+    private var tokenSub: TextView? = null
+    private var autoUpdateSwitch: Switch? = null
+
     // Der Klang-Bereich (Kurve bzw. Bänder) wandert zwischen Startseite und Equalizer-Seite
     private lateinit var soundBox: LinearLayout
     private lateinit var homeSoundHolder: LinearLayout
@@ -201,6 +209,7 @@ class MainActivity : Activity() {
         if (presetAtPause != null && presetAtPause != prefs.presetName) clearHistory()
         render()
         updateSpectrum()
+        updater.checkQuietly()
     }
 
     override fun onPause() {
@@ -265,6 +274,7 @@ class MainActivity : Activity() {
 
     private fun buildUi(): View {
         host = FrameLayout(this).apply { setBackgroundColor(Palette.bg) }
+        updater = UpdateUi(this, ui) { renderUpdate() }
 
         // Bausteine, die mehrere Seiten nutzen, zuerst anlegen
         buildSoundBox()
@@ -315,6 +325,25 @@ class MainActivity : Activity() {
 
         homeBody = ui.vbox()
         root.addView(homeBody)
+
+        // Hinweis, wenn auf GitHub eine neuere Version liegt
+        updateBannerText = TextView(this).apply {
+            textSize = 14f
+            setTextColor(Palette.goldLight)
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        }
+        updateBanner = ui.card().apply {
+            visibility = View.GONE
+            addView(ui.row(
+                updateBannerText,
+                ui.goldButton("Installieren").apply {
+                    ui.setActive(this, true)
+                    setPadding(ui.dp(16), 0, ui.dp(16), 0)
+                    setOnClickListener { updater.installLatest() }
+                },
+            ))
+        }
+        homeBody.addView(updateBanner)
 
         // Profil
         val pc = ui.card("Profil")
@@ -369,7 +398,11 @@ class MainActivity : Activity() {
         grid.addView(ui.row(tile(PAGE_EQ, "≈", "Equalizer"), tile(PAGE_VOLUME, "◢", "Lautstärke")))
         grid.addView(ui.row(tile(PAGE_HEARING, "◐", "Hörprofil"), room))
         grid.addView(ui.row(tile(PAGE_PHONES, "∩", "Kopfhörer"), tile(PAGE_PROFILES, "★", "Profile")))
-        grid.addView(ui.row(tile(PAGE_SETTINGS, "☰", "Einstellungen")))
+        val (upd, updSub) = ui.tile("⇣", "Update") {
+            if (Updater.knownNewer(this) > 0) updater.installLatest() else updater.checkNow()
+        }
+        tileSubs[PAGE_UPDATE] = updSub
+        grid.addView(ui.row(tile(PAGE_SETTINGS, "☰", "Einstellungen"), upd))
         homeBody.addView(grid)
         return root
     }
@@ -457,6 +490,23 @@ class MainActivity : Activity() {
         if (soundBox.parent === holder) return
         (soundBox.parent as? ViewGroup)?.removeView(soundBox)
         holder.addView(soundBox)
+    }
+
+    /** Update-Hinweise auf Startseite, Kachel und in den Einstellungen. */
+    private fun renderUpdate() {
+        if (!built) return
+        val mine = Updater.installedVersion(this)
+        val newer = Updater.knownNewer(this)
+        updateBanner.visibility = if (newer > 0) View.VISIBLE else View.GONE
+        updateBannerText.text = "Update 1.$newer ist da"
+        tileSubs[PAGE_UPDATE]?.text = if (newer > 0) "Neu: 1.$newer" else "Version 1.$mine"
+        tileSubs[PAGE_UPDATE]?.setTextColor(if (newer > 0) Palette.goldLight else Palette.muted)
+        updateInfo?.text = if (newer > 0) "Installiert: 1.$mine  ·  verfügbar: 1.$newer" else "Installiert: Version 1.$mine"
+        tokenSub?.text = if (Updater.token(this).isEmpty()) "Nicht eingetragen – nötig, solange das Repo privat ist" else "Eingetragen ✓"
+        val was = ui.silent
+        ui.silent = true
+        autoUpdateSwitch?.isChecked = Updater.autoCheck(this)
+        ui.silent = was
     }
 
     /** Kurzer Stand je Menü-Kachel. */
@@ -1252,6 +1302,20 @@ class MainActivity : Activity() {
         })
         p.addView(bg)
 
+        val u = ui.card("App-Update")
+        updateInfo = ui.hint("").apply { textSize = 14f; setTextColor(Palette.champagne) }
+        u.addView(updateInfo)
+        u.addView(ui.linkRow("Nach Update suchen", "Neueste Version von GitHub laden und installieren") { updater.checkNow() })
+        val tokenRow = ui.linkRow("GitHub-Zugang", "") { updater.askToken() }
+        tokenSub = ((tokenRow.getChildAt(0) as LinearLayout).getChildAt(1) as? TextView)
+        u.addView(tokenRow)
+        autoUpdateSwitch = ui.switch("Beim Öffnen automatisch prüfen") { on ->
+            Updater.setAutoCheck(this, on)
+            if (on) updater.checkQuietly()
+        }
+        u.addView(autoUpdateSwitch)
+        p.addView(u)
+
         val q = ui.card("Schnellzugriff")
         q.addView(ui.hint(
             "Schnelleinstellungen: Leiste ganz herunterziehen → Bearbeiten (Stift) → die Kacheln „Equalizer“ " +
@@ -1371,6 +1435,7 @@ class MainActivity : Activity() {
         renderDevices()
         updateStatus()
         updateTiles()
+        renderUpdate()
         ui.silent = was
     }
 
@@ -1666,6 +1731,7 @@ class MainActivity : Activity() {
         private const val PAGE_PHONES = 4
         private const val PAGE_PROFILES = 5
         private const val PAGE_SETTINGS = 6
+        private const val PAGE_UPDATE = 8           // keine Unterseite – sucht direkt nach einem Update
         private const val PAGE_ROOM = 7             // keine Unterseite – öffnet die Mess-Ansicht
         /** Maximaler Lautstärke-Boost: 1500 mB = +15 dB */
         private const val MAX_LOUDNESS = 1500

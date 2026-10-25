@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- nur für den Download der AutoEq-Kopfhörerkorrekturen -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- nur für den Update-Knopf: neue Version von GitHub installieren -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Live-Spektrum (Android koppelt die Klanganalyse an diese Berechtigung) und Boxen einmessen -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -120,5 +122,9 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <!-- Rückmeldung des Installers beim Update aus der App -->
+        <receiver
+            android:name=".InstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

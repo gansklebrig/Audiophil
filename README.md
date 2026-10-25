@@ -15,6 +15,14 @@ Signiert wird mit dem festen Schlüssel `keystore/equalizer.jks`, auch beim Baue
 Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss einmal deinstalliert werden
 (vorher Profile → Exportieren, danach wieder importieren).
 
+### Update direkt aus der App
+Kachel **Update** auf der Startseite (oder Einstellungen → App-Update): sucht das neueste Release,
+zeigt die Neuerungen und installiert es nach Bestätigung. Beim Öffnen prüft die App höchstens alle
+6 Stunden von selbst und zeigt dann oben „Update ist da“.
+Weil das Repo privat ist, braucht die App einmalig einen **GitHub-Zugang**: Fine-grained Token,
+nur für dieses Repo, Berechtigung „Contents: Read-only“ (Einstellungen → App-Update → GitHub-Zugang).
+Beim ersten Update fragt Android, ob der Equalizer Apps installieren darf → erlauben.
+
 ## Selbst bauen (Android Studio)
 1. Android Studio installieren: https://developer.android.com/studio
 2. Ordner öffnen (File → Open). Gradle-Sync abwarten.
