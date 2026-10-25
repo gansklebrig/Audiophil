@@ -6,27 +6,28 @@ Lautheitsausgleich, Nachtmodus, Kopfhörer-Automatik, AutoEq-Import, Live-Spektr
 
 ## Aufs Handy installieren (ohne Android Studio)
 Bei jedem Push baut GitHub die App automatisch (`.github/workflows/apk.yml`).
-1. Auf dem Handy **github.com/gansklebrig/Equalizer/releases/latest** öffnen (bei GitHub angemeldet, das Repo ist privat).
+1. Auf dem Handy **github.com/gansklebrig/Audiophil/releases/latest** öffnen (bei GitHub angemeldet, das Repo ist privat).
 2. **Equalizer.apk** antippen, herunterladen, öffnen, „Installieren“.
    Beim ersten Mal fragt Android, ob der Browser Apps installieren darf → erlauben.
 3. Neue Versionen werden genauso einfach drüberinstalliert – Profile und Einstellungen bleiben.
 
-Signiert wird mit dem festen Schlüssel `keystore/equalizer.jks`, auch beim Bauen in Android Studio.
+Signiert wird mit einem festen Schlüssel. Er liegt nur verschlüsselt im Repo (`keystore/equalizer.jks.enc`);
+GitHub entschlüsselt ihn beim Bauen mit dem Secret `KEYSTORE_PASSPHRASE`.
 Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss einmal deinstalliert werden
 (vorher Profile → Exportieren, danach wieder importieren).
 
 ### Update direkt aus der App
-Kachel **Update** auf der Startseite (oder Einstellungen → App-Update): sucht das neueste Release,
-zeigt die Neuerungen und installiert es nach Bestätigung. Beim Öffnen prüft die App höchstens alle
-6 Stunden von selbst und zeigt dann oben „Update ist da“.
-Weil das Repo privat ist, braucht die App einmalig einen **GitHub-Zugang**: Fine-grained Token,
-nur für dieses Repo, Berechtigung „Contents: Read-only“ (Einstellungen → App-Update → GitHub-Zugang).
+Kachel **Update** auf der Startseite (oder Einstellungen → App-Update): sucht das neueste Release
+in diesem öffentlichen Repo, zeigt die Neuerungen und installiert es nach Bestätigung.
+Beim Öffnen prüft die App höchstens alle 6 Stunden von selbst und zeigt dann oben „Update ist da“.
 Beim ersten Update fragt Android, ob der Equalizer Apps installieren darf → erlauben.
 
 ## Selbst bauen (Android Studio)
 1. Android Studio installieren: https://developer.android.com/studio
 2. Ordner öffnen (File → Open). Gradle-Sync abwarten.
 3. Handy per USB verbinden (USB-Debugging an) und ▶ Run drücken.
+   Ohne den entschlüsselten Schlüssel wird mit dem Debug-Schlüssel signiert – so eine Version lässt sich
+   nicht über die GitHub-Version installieren (und umgekehrt).
 
 ## Oberfläche
 - **Startseite**: Ein/Aus, Profil, Klangkurve bzw. Frequenzbänder mit ↶ ↷ und Vorher/Nachher,

@@ -27,11 +27,11 @@ import java.net.URL
  * Update direkt aus der App: fragt das neueste GitHub-Release ab, lädt Equalizer.apk herunter
  * und installiert es über Androids PackageInstaller (Profile und Einstellungen bleiben erhalten).
  *
- * Das Repository ist privat – dann braucht die App einen GitHub-Zugangsschlüssel (Token) mit
- * Lesezugriff auf „Contents“. Bei einem öffentlichen Repo geht es auch ohne.
+ * Die Releases liegen im öffentlichen Repository gansklebrig/Audiophil – dafür ist kein
+ * Zugangsschlüssel nötig. (Ein optionaler Token wird nur mitgeschickt, falls einer gespeichert ist.)
  */
 object Updater {
-    const val REPO = "gansklebrig/Equalizer"
+    const val REPO = "gansklebrig/Audiophil"
     private const val API = "https://api.github.com/repos/$REPO/releases/latest"
     private const val ASSET = "Equalizer.apk"
     private const val PREFS = "update"
@@ -84,10 +84,7 @@ object Updater {
         val c = open(API, ctx, "application/vnd.github+json", auth = true)
         val code = c.responseCode
         if (code == 401) throw UpdateException("Der GitHub-Zugang ist ungültig oder abgelaufen.")
-        if (code == 404) throw UpdateException(
-            if (token(ctx).isEmpty()) "Das Repository ist privat – bitte einmal den GitHub-Zugang eintragen."
-            else "Kein Release gefunden, oder der Zugang darf dieses Repository nicht lesen."
-        )
+        if (code == 404) throw UpdateException("Auf GitHub ist noch keine Version veröffentlicht.")
         if (code == 403) throw UpdateException("GitHub hat die Abfrage gerade begrenzt. Bitte später noch einmal.")
         if (code != 200) throw UpdateException("GitHub antwortet mit Fehler $code.")
         val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
@@ -204,7 +201,7 @@ class UpdateUi(private val a: Activity, private val ui: Ui, private val onState:
                     AlertDialog.Builder(a)
                         .setTitle("Update")
                         .setMessage(msg)
-                        .apply { if (Updater.token(a).isEmpty() || e.message?.contains("Zugang") == true)
+                        .apply { if (e.message?.contains("Zugang") == true)
                             setPositiveButton("Zugang eintragen") { _, _ -> askToken() } }
                         .setNegativeButton("Schließen", null)
                         .show()

@@ -1306,9 +1306,7 @@ class MainActivity : Activity() {
         updateInfo = ui.hint("").apply { textSize = 14f; setTextColor(Palette.champagne) }
         u.addView(updateInfo)
         u.addView(ui.linkRow("Nach Update suchen", "Neueste Version von GitHub laden und installieren") { updater.checkNow() })
-        val tokenRow = ui.linkRow("GitHub-Zugang", "") { updater.askToken() }
-        tokenSub = ((tokenRow.getChildAt(0) as LinearLayout).getChildAt(1) as? TextView)
-        u.addView(tokenRow)
+        u.addView(ui.hint("Quelle: github.com/${Updater.REPO} (öffentlich, kein Zugang nötig)"))
         autoUpdateSwitch = ui.switch("Beim Öffnen automatisch prüfen") { on ->
             Updater.setAutoCheck(this, on)
             if (on) updater.checkQuietly()
