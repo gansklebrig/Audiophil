@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="eq_black">#0B0A08</color>
+    <color name="eq_surface">#16130E</color>
+    <color name="eq_gold">#C9A961</color>
+    <color name="eq_gold_light">#E6CF8F</color>
+    <color name="eq_champagne">#E9E1CF</color>
+</resources>

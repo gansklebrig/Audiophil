@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Schwarz-Gold-Thema -->
+    <style name="Theme.EqGold" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/eq_black</item>
+        <item name="android:statusBarColor">@color/eq_black</item>
+        <item name="android:navigationBarColor">@color/eq_black</item>
+        <item name="android:colorPrimary">@color/eq_black</item>
+        <item name="android:colorPrimaryDark">@color/eq_black</item>
+        <item name="android:colorAccent">@color/eq_gold</item>
+        <item name="android:colorControlActivated">@color/eq_gold</item>
+        <item name="android:textColorPrimary">@color/eq_champagne</item>
+        <item name="android:alertDialogTheme">@style/Theme.EqGold.Dialog</item>
+    </style>
+
+    <style name="Theme.EqGold.Dialog" parent="@android:style/Theme.DeviceDefault.Dialog.Alert">
+        <item name="android:colorAccent">@color/eq_gold</item>
+        <item name="android:colorBackground">@color/eq_surface</item>
+        <item name="android:textColorPrimary">@color/eq_champagne</item>
+    </style>
+
+    <!-- Knöpfe im Homescreen-Widget -->
+    <style name="WidgetButton">
+        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_marginStart">2dp</item>
+        <item name="android:layout_marginEnd">2dp</item>
+        <item name="android:background">@drawable/widget_btn</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">@color/eq_gold_light</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:maxLines">1</item>
+    </style>
+
+    <!-- Unsichtbare Hilfs-Activity zum Einschalten aus dem Widget -->
+    <style name="Theme.EqGold.NoDisplay" parent="@android:style/Theme.NoDisplay" />
+</resources>

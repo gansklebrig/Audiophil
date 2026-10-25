@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vordergrund des App-Icons (108x108, sichtbarer Bereich ca. 30..78):
+     drei feine Goldlinien mit zarten Reglerknöpfen, halbtransparent -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Linien -->
+    <path android:strokeColor="#D4B26A" android:strokeAlpha="0.45" android:strokeWidth="1.2"
+        android:strokeLineCap="round" android:pathData="M40,36 L40,72 M54,36 L54,72 M68,36 L68,72" />
+    <!-- Reglerknöpfe als feine Ringe -->
+    <path android:strokeColor="#E6CF8F" android:strokeAlpha="0.7" android:strokeWidth="1.2"
+        android:fillColor="#0B0A08"
+        android:pathData="M40,58 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0
+                          M54,45 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0
+                          M68,53 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0" />
+    <!-- hauchzarter Rahmen -->
+    <path android:strokeColor="#C9A961" android:strokeAlpha="0.18" android:strokeWidth="0.8"
+        android:pathData="M54,54 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0" />
+</vector>

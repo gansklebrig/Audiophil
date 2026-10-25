@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Homescreen-Widget im Schwarz-Gold-Design -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:letterSpacing="0.2"
+            android:text="EQUALIZER"
+            android:textColor="@color/eq_gold"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/widget_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AUS"
+            android:textColor="@color/eq_gold"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_profile"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="Benutzerdefiniert"
+        android:textColor="@color/eq_gold_light"
+        android:textSize="18sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_power"
+            style="@style/WidgetButton"
+            android:layout_width="0dp"
+            android:layout_weight="1.4"
+            android:text="An" />
+
+        <TextView
+            android:id="@+id/widget_prev"
+            style="@style/WidgetButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="‹" />
+
+        <TextView
+            android:id="@+id/widget_next"
+            style="@style/WidgetButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="›" />
+
+        <TextView
+            android:id="@+id/widget_minus"
+            style="@style/WidgetButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="−" />
+
+        <TextView
+            android:id="@+id/widget_boost"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.8"
+            android:gravity="center"
+            android:maxLines="1"
+            android:text="+0,0 dB"
+            android:textColor="@color/eq_gold_light"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/widget_plus"
+            style="@style/WidgetButton"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:text="+" />
+    </LinearLayout>
+</LinearLayout>
