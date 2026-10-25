@@ -267,6 +267,7 @@ object ParamEq {
 
     /** Obere Grenzfrequenzen von [n] logarithmisch verteilten Bändern zwischen 20 Hz und 20 kHz. */
     fun cutoffs(n: Int) = FloatArray(n) { (20.0 * 1000.0.pow((it + 1).toDouble() / n)).toFloat() }
+        .also { it[n - 1] = 24000f }   // letztes Band bis zur halben Abtastrate, sonst bliebe > 20 kHz ohne Pegel
 
     /** Geometrische Bandmitten zu [cut]. */
     fun centers(cut: FloatArray) = DoubleArray(cut.size) { i ->

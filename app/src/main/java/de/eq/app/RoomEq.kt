@@ -240,7 +240,8 @@ object RoomEq {
 
         // Bezugspegel im Mittelton (dort misst ein Handy-Mikrofon am verlässlichsten)
         val mid = FREQS.indices.filter { FREQS[it] in 300.0..3000.0 }
-        val ref = mid.map { m[it] - t[it] }.average().toFloat()
+        // Median statt Mittelwert: eine breite Überhöhung im Mittelton verschiebt sonst die ganze Kurve
+        val ref = mid.map { m[it] - t[it] }.sorted().let { d -> if (d.isEmpty()) 0f else d[d.size / 2] }
         val meas = FloatArray(n) { m[it] - ref }
 
         // Untere Grenze der Boxen: ab hier liegt der Pegel höchstens 6 dB unter dem Mittelton
@@ -263,8 +264,11 @@ object RoomEq {
             val f = FREQS[i]
             if (f < fLow * 0.8 || f > 16000 || r.snr[i] < 6f) continue
             // Anheben nur im sicheren Bereich, zu den Höhen hin sanft auslaufend
+            // unterhalb von boostFrom über eine Oktave weich einblenden (eine harte Stufe
+            // erzeugte sonst Paare gegenläufiger Filter um die Grenze)
             val boost = when {
-                f < boostFrom -> 0f
+                f < boostFrom / 2 -> 0f
+                f < boostFrom -> MAX_BOOST * log2(f / (boostFrom / 2)).toFloat()
                 f <= 6000 -> MAX_BOOST
                 f >= 10000 -> 0f
                 else -> MAX_BOOST * (log2(10000 / f) / log2(10000.0 / 6000)).toFloat()

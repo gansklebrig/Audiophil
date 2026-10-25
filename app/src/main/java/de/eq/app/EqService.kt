@@ -191,7 +191,8 @@ class EqService : Service() {
                         mbc, if (mbc) 1 else 0,     // Kompressor (ein Band = Breitband)
                         false, 0,                   // Post-EQ
                         true,                       // Limiter
-                    ).setPreferredFrameDuration(10f).build()
+                    // 40 ms: ergibt ~23-Hz-Raster im Bass (bei 10 ms nur ~94 Hz – schmale Bass-Filter gingen verloren)
+                    ).setPreferredFrameDuration(40f).build()
                     dp = DynamicsProcessing(PRIORITY, session, cfg)
                     cutoffs = ParamEq.cutoffs(n)
                     hasMbc = mbc
@@ -309,7 +310,9 @@ class EqService : Service() {
 
     /** Zustand ohne Klangfärbung (für den Vorher/Nachher-Vergleich). */
     private fun neutral(s: EqState) = s.copy(
-        mode = MODE_GRAPHIC, bands = IntArray(s.bands.size), bass = 0,
+        // Im parametrischen Modus bleibt die Vorverstärkung (z. B. −6 dB von AutoEq) –
+        // sonst wäre „Vorher“ lauter und der Vergleich unfair.
+        bands = IntArray(s.bands.size), bass = 0, filters = emptyList(),
         hearingOn = false, loudComp = 0, night = 0,
     )
 
@@ -356,7 +359,8 @@ class EqService : Service() {
 
         // Limiter: Anschlag 1 ms, Freigabe 60 ms, Verhältnis 10:1
         dp.setLimiterAllChannelsTo(
-            DynamicsProcessing.Limiter(true, s.limiter, 0, 1f, 60f, 10f, s.limiterThreshold, 0f)
+            // Verhältnis 50:1 – praktisch eine harte Grenze (bei 10:1 kam Übersteuern noch durch)
+            DynamicsProcessing.Limiter(true, s.limiter, 0, 1f, 60f, 50f, s.limiterThreshold, 0f)
         )
 
         // Lautstärke-Boost + Balance als Eingangsverstärkung je Kanal

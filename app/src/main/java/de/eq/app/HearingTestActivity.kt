@@ -52,6 +52,11 @@ class HearingTestActivity : Activity() {
     private val right = HashMap<Float, Float>()
     private val lastLevel = floatArrayOf(Float.NaN, Float.NaN)   // zuletzt gemessene Schwelle je Ohr
     private var controlDiff = 0f
+    /** Bis zur Höchstlautstärke nicht gehört – dort wird nichts korrigiert. */
+    private val notHeard = HashSet<Pair<Int, Float>>()
+    /** Startpegel des laufenden Messpunkts; tippt man sofort, wird leiser neu begonnen. */
+    private var stepStart = 0f
+    private var startOverride: Float? = null
     private var startVolume = -1
     private var tone: Tone? = null
     private var testing = false
@@ -153,8 +158,9 @@ class HearingTestActivity : Activity() {
 
     private fun startTest() {
         stopTone()
-        left.clear(); right.clear()
+        left.clear(); right.clear(); notHeard.clear()
         lastLevel.fill(Float.NaN)
+        startOverride = null
         stepIndex = 0
         testing = true
         startVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -204,11 +210,17 @@ class HearingTestActivity : Activity() {
         }
         // Start 20 dB unter der zuletzt gemessenen Schwelle dieses Ohrs
         val prev = lastLevel[step.ear]
-        val start = ((if (prev.isNaN()) -55f else prev) - 20f).coerceIn(MIN_DB, -40f)
+        val start = startOverride ?: ((if (prev.isNaN()) -55f else prev) - 20f).coerceIn(MIN_DB, -40f)
+        startOverride = null
+        stepStart = start
+        // Gemessen wird „durch“ den parametrischen EQ des Profils (z. B. AutoEq), sonst würde
+        // die Kopfhörer-Korrektur später doppelt ausgeglichen.
+        val s = prefs.state
+        val eqDb = if (s.mode == MODE_PARAMETRIC) ParamEq.response(s, step.freq.toDouble(), step.ear).toFloat() else 0f
         lateinit var t: Tone
-        t = Tone(step.freq, step.ear, start, STEP_DB, MAX_DB, onLevel = {}, onEnd = {
+        t = Tone(step.freq, step.ear, start, STEP_DB, MAX_DB, onLevel = {}, gainDb = eqDb, onEnd = {
             // Bis zur Höchstlautstärke nicht gehört – nur werten, wenn dieser Ton noch der aktuelle ist
-            main.post { if (testing && tone === t) record(MAX_DB) }
+            main.post { if (testing && tone === t) { if (!step.control) notHeard.add(step.ear to step.freq); record(MAX_DB) } }
         })
         tone = t
         t.start()
@@ -217,6 +229,15 @@ class HearingTestActivity : Activity() {
     private fun onHeard() {
         val t = tone ?: return
         if (!testing) return
+        // Sofort beim ersten oder zweiten Puls gehört: Der Start war schon zu laut –
+        // diesen Punkt 20 dB leiser neu beginnen, damit die Schwelle wirklich von unten erreicht wird.
+        if (t.level <= stepStart + STEP_DB && stepStart > MIN_DB + 1f) {
+            stopTone()
+            startOverride = (stepStart - 20f).coerceAtLeast(MIN_DB)
+            pulseText?.text = "Noch einmal etwas leiser …"
+            main.postDelayed({ runStep() }, 900L + (Math.random() * 700).toLong())
+            return
+        }
         // Pufferlatenz + Reaktionszeit ≈ ein Puls: gehört wurde der vorige Ton
         val level = (t.level - STEP_DB).coerceAtLeast(MIN_DB)
         record(level)
@@ -251,7 +272,10 @@ class HearingTestActivity : Activity() {
     // ---------- Ergebnis ----------
 
     private fun showResult() {
-        val filters = HearingFit.correction(left, right)
+        // Nicht gehörte Frequenzen nicht „hochdrehen“ – dort wäre jede Korrektur geraten
+        val l = left.filterKeys { (0 to it) !in notHeard }
+        val r = right.filterKeys { (1 to it) !in notHeard }
+        val filters = HearingFit.correction(l, r)
         page { root ->
             root.addView(ui.title("ERGEBNIS"))
             root.addView(ui.section("Deine Hörkorrektur"))
@@ -266,6 +290,14 @@ class HearingTestActivity : Activity() {
                     if (maxF == null || maxF.gain < 1f) "$name: kaum Korrektur nötig"
                     else "$name: stärkste Anhebung %+.1f dB bei %s".format(maxF.gain, formatFreq(maxF.freq))
                 ).apply { textSize = 15f })
+            }
+            if (notHeard.isNotEmpty()) {
+                val list = notHeard.sortedWith(compareBy({ it.first }, { it.second }))
+                    .joinToString(", ") { (ear, f) -> (if (ear == 0) "links " else "rechts ") + formatFreq(f) }
+                root.addView(ui.hint(
+                    "Bis zur Höchstlautstärke nicht gehört: $list. Dort wird nichts korrigiert. " +
+                    "Wenn das nicht an den Kopfhörern liegt, lass dein Gehör bitte ärztlich prüfen."
+                ).apply { setTextColor(Palette.warn) })
             }
             if (controlDiff > 10f) {
                 root.addView(ui.hint(
@@ -340,6 +372,8 @@ class Tone(
     private val maxDb: Float = 0f,
     private val maxPulses: Int = Int.MAX_VALUE,
     private val onLevel: (Float) -> Unit,
+    /** Zusätzliche Verstärkung beim Abspielen (z. B. Kurve des Kopfhörer-EQ); [level] bleibt der Nennpegel. */
+    private val gainDb: Float = 0f,
     private val onEnd: () -> Unit,
 ) : Thread("Testton") {
     @Volatile var running = true
@@ -377,7 +411,7 @@ class Tone(
         try {
             track.play()
             while (running) {
-                val amp = 10f.pow(level / 20f)
+                val amp = 10f.pow(((level + gainDb).coerceAtMost(0f)) / 20f)
                 buf.fill(0f)
                 var phase = 0.0
                 for (i in 0 until toneN) {
