@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- nur für den Download der AutoEq-Kopfhörerkorrekturen -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- nur für das Live-Spektrum: Android koppelt die Klanganalyse an diese Berechtigung -->
+    <!-- Live-Spektrum (Android koppelt die Klanganalyse an diese Berechtigung) und Boxen einmessen -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
@@ -42,6 +42,13 @@
             android:name=".HearingTestActivity"
             android:exported="false"
             android:label="Hörtest" />
+
+        <!-- Boxen einmessen -->
+        <activity
+            android:name=".RoomMeasureActivity"
+            android:exported="false"
+            android:label="Boxen einmessen"
+            android:screenOrientation="portrait" />
 
         <!-- Unsichtbare Hilfs-Activity: Einschalten aus dem Widget -->
         <activity

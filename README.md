@@ -1,8 +1,8 @@
 # Equalizer (Android)
 
 Systemweiter Equalizer im Schwarz-Gold-Design – wahlweise als Band-EQ oder parametrischer EQ,
-mit eigenen Profilen, Hörtest, Lautstärke-Boost, Limiter, Balance, Lautheitsausgleich, Nachtmodus,
-Kopfhörer-Automatik, AutoEq-Import, Live-Spektrum und Homescreen-Widget.
+mit eigenen Profilen, Hörtest, Boxen-Einmessung per Mikrofon, Lautstärke-Boost, Limiter, Balance,
+Lautheitsausgleich, Nachtmodus, Kopfhörer-Automatik, AutoEq-Import, Live-Spektrum und Homescreen-Widget.
 
 ## Aufs Handy installieren (ohne Android Studio)
 Bei jedem Push baut GitHub die App automatisch (`.github/workflows/apk.yml`).
@@ -22,10 +22,11 @@ Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss
 
 ## Oberfläche
 - **Startseite**: Ein/Aus, Profil, Klangkurve bzw. Frequenzbänder mit ↶ ↷ und Vorher/Nachher,
-  Lautstärke-Boost und sechs Kacheln, die jeweils den aktuellen Stand zeigen.
+  Lautstärke-Boost und sieben Kacheln, die jeweils den aktuellen Stand zeigen.
 - **Untermenüs** (Kachel antippen, Zurück-Taste oder ‹ führt zurück):
   Equalizer (Art, Spektrum, Filter, Vorverstärkung) · Lautstärke (Schrittweite, Limiter, Balance,
-  Lautheitsausgleich, Nachtmodus) · Hörprofil (Hörtest, Stärke) · Kopfhörer (AutoEq, Automatik) ·
+  Lautheitsausgleich, Nachtmodus) · Hörprofil (Hörtest, Stärke) · Boxen einmessen (eigene Ansicht) ·
+  Kopfhörer (AutoEq, Automatik) ·
   Profile (Speichern, Umbenennen, Export/Import, Zurücksetzen) · Einstellungen (Global-Modus,
   Akku, Benachrichtigung, Schnellzugriff).
 
@@ -56,6 +57,20 @@ Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss
   halben Differenz („Halbe-Verstärkung-Regel“), begrenzt auf −6 … +12 dB, als Glockenfilter je Ohr.
 - Wird im Profil gespeichert (aktuelles oder alle ★-Profile); Stärke 0–150 %, abschaltbar.
 - Kein Ersatz für einen ärztlichen Hörtest.
+
+### Boxen einmessen (ab Android 9)
+- Über die verbundenen Boxen (Bluetooth oder Kabel) läuft rosa Rauschen; das Handy-Mikrofon nimmt es am
+  Hörplatz auf. Vorher wird 2 s das Raumgeräusch gemessen. Pegelprüfung mit Live-Anzeige vor dem Start.
+- 1 oder 3 Messpunkte (räumliche Mittelung). Der Equalizer wird während der Messung umgangen.
+- Auswertung: Welch-Spektrum (32768-Punkte-FFT) von Aufnahme und Testsignal, 1/12-Oktav-Bänder,
+  Glättung (Bass ungeglättet, Grundton 1/6, darüber 1/3 Oktave). Bluetooth-Verzögerung spielt keine Rolle.
+- Zielkurven: neutral (−0,8 dB/Oktave, empfohlen), linear, mehr Bass.
+- Korrektur: bis zu 10 Glockenfilter, Stärken per gewichteter kleinster Quadrate. Absenken bis −12 dB,
+  Anheben höchstens +6 dB und nur breit, erst ab der doppelten Box-Untergrenze (schont Tieftöner),
+  zu den Höhen hin auslaufend. Vorverstärkung so, dass nichts übersteuert. Stärke 0–100 % wählbar.
+- Ergebnis wird ein eigenes ★-Profil und kann mit den Boxen verknüpft werden (Kopfhörer-Automatik).
+- Grenzen: Handy-Mikrofone sind im tiefen Bass und in den obersten Höhen ungenau – deshalb wird dort
+  zurückhaltend korrigiert.
 
 ### Klangautomatik (ab Android 9)
 - **Lautheitsausgleich**: hebt bei leiser Handy-Lautstärke Bass (bis +12 dB) und Höhen (bis +4 dB) an –
@@ -109,5 +124,7 @@ Eine früher mit dem Android-Studio-Standardschlüssel installierte Version muss
 | `Tiles.kt` | Schnelleinstellungs-Kacheln |
 | `Widget.kt` | Homescreen-Widget und Einschalt-Hilfe |
 | `HearingTestActivity.kt` | Hörtest: Tonerzeugung, Ablauf, Ergebnisgrafik |
+| `RoomEq.kt` | Boxen einmessen: Testrauschen, FFT/Spektrum, Zielkurven, automatische Filterwahl |
+| `RoomMeasureActivity.kt` | Boxen einmessen: Pegelprüfung, Aufnahme/Wiedergabe, Ergebnisgrafik, Profil |
 | `Spectrum.kt` | Live-Spektrum (Visualizer-Analyse und Darstellung) |
 | `Receivers.kt` | Session-Meldungen von Musik-Apps, Autostart nach Neustart |

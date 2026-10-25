@@ -166,9 +166,9 @@ object ParamEq {
     private const val FS = 48000.0
 
     /** Verstärkung eines einzelnen Filters bei [freq] Hz, in dB. */
-    fun filterDb(f: PFilter, freq: Double): Double {
-        if (!f.on) return 0.0
-        val w0 = 2 * PI * f.freq.toDouble().coerceIn(10.0, 23000.0) / FS
+    /** Biquad-Koeffizienten (b0, b1, b2, a0, a1, a2) nach dem RBJ-Cookbook für Abtastrate [fs]. */
+    fun coeffs(f: PFilter, fs: Double = FS): DoubleArray {
+        val w0 = 2 * PI * f.freq.toDouble().coerceIn(10.0, fs * 0.48) / fs
         val cw = cos(w0)
         val alpha = sin(w0) / (2 * f.q.toDouble().coerceAtLeast(0.05))
         val a = 10.0.pow(f.gain / 40.0)
@@ -206,6 +206,13 @@ object ParamEq {
                 a0 = 1 + alpha / a; a1 = -2 * cw; a2 = 1 - alpha / a
             }
         }
+        return doubleArrayOf(b0, b1, b2, a0, a1, a2)
+    }
+
+    fun filterDb(f: PFilter, freq: Double): Double {
+        if (!f.on) return 0.0
+        val c = coeffs(f, FS)
+        val b0 = c[0]; val b1 = c[1]; val b2 = c[2]; val a0 = c[3]; val a1 = c[4]; val a2 = c[5]
         val w = 2 * PI * freq / FS
         val c1 = cos(w); val s1 = sin(w); val c2 = cos(2 * w); val s2 = sin(2 * w)
         val nr = b0 + b1 * c1 + b2 * c2; val ni = -(b1 * s1 + b2 * s2)

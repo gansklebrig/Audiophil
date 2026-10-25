@@ -364,11 +364,21 @@ class MainActivity : Activity() {
             tileSubs[id] = sub
             return v
         }
+        val (room, roomSub) = ui.tile("◎", "Boxen einmessen") { startRoomMeasure() }
+        tileSubs[PAGE_ROOM] = roomSub
         grid.addView(ui.row(tile(PAGE_EQ, "≈", "Equalizer"), tile(PAGE_VOLUME, "◢", "Lautstärke")))
-        grid.addView(ui.row(tile(PAGE_HEARING, "◐", "Hörprofil"), tile(PAGE_PHONES, "∩", "Kopfhörer")))
-        grid.addView(ui.row(tile(PAGE_PROFILES, "★", "Profile"), tile(PAGE_SETTINGS, "☰", "Einstellungen")))
+        grid.addView(ui.row(tile(PAGE_HEARING, "◐", "Hörprofil"), room))
+        grid.addView(ui.row(tile(PAGE_PHONES, "∩", "Kopfhörer"), tile(PAGE_PROFILES, "★", "Profile")))
+        grid.addView(ui.row(tile(PAGE_SETTINGS, "☰", "Einstellungen")))
         homeBody.addView(grid)
         return root
+    }
+
+    /** Boxen per Mikrofon einmessen (eigene Ansicht). */
+    private fun startRoomMeasure() {
+        if (!dpSupported) { ui.toast("Das Einmessen braucht Android 9 oder neuer."); return }
+        @Suppress("DEPRECATION")
+        startActivityForResult(Intent(this, RoomMeasureActivity::class.java), REQ_ROOM)
     }
 
     /** Vorher/Nachher: gedrückt halten → Klangfärbung kurz aus. */
@@ -468,6 +478,7 @@ class MainActivity : Activity() {
             s.hearingOn -> "Aktiv · ${s.hearingAmount} %"
             else -> "Ausgeschaltet"
         }
+        tileSubs[PAGE_ROOM]?.text = if (!dpSupported) "Ab Android 9" else "Automatisch per Mikrofon"
         tileSubs[PAGE_PHONES]?.text = currentDevice().label
         val n = prefs.profileNames().size
         tileSubs[PAGE_PROFILES]?.text = if (n == 0) "Noch keine gespeichert" else "$n gespeichert"
@@ -1542,8 +1553,8 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_HEARING) {
-            if (resultCode == RESULT_OK) clearHistory()
+        if (requestCode == REQ_HEARING || requestCode == REQ_ROOM) {
+            if (resultCode == RESULT_OK) { clearHistory(); selFilter = 0 }
             return
         }
         val uri = data?.data ?: return
@@ -1655,6 +1666,7 @@ class MainActivity : Activity() {
         private const val PAGE_PHONES = 4
         private const val PAGE_PROFILES = 5
         private const val PAGE_SETTINGS = 6
+        private const val PAGE_ROOM = 7             // keine Unterseite – öffnet die Mess-Ansicht
         /** Maximaler Lautstärke-Boost: 1500 mB = +15 dB */
         private const val MAX_LOUDNESS = 1500
         /** Schritt der −/+ Tasten bei den Frequenzbändern: 10 mB = 0,1 dB */
@@ -1672,6 +1684,7 @@ class MainActivity : Activity() {
         private const val REQ_IMPORT = 11
         private const val REQ_HEARING = 12
         private const val REQ_MIC = 13
+        private const val REQ_ROOM = 14
         private const val HISTORY_GAP_MS = 700L
         private const val HISTORY_MAX = 60
         private const val HEARING_MAX = 150
