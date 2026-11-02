@@ -203,8 +203,18 @@ class EqService : Service() {
         val d = AudioDevices.current(this)
         currentDevice = d
         if (d.key != prefs.lastDeviceKey) {
+            // Vor dem Merken prüfen – beim ersten Mal zählt das zuletzt benutzte Gerät als bekannt
+            val isNew = d.key.startsWith("bt:") && prefs.markDeviceKnown(d.key)
             prefs.lastDeviceKey = d.key
-            if (prefs.autoSwitch) {
+            if (prefs.autoSwitch && isNew && prefs.newDeviceProfiles &&
+                prefs.deviceAssignments().none { it.key == d.key }
+            ) {
+                // Neue Kopfhörer: eigenes, neutrales Profil statt der Einstellungen anderer Geräte
+                val name = prefs.createDeviceProfile(d.key, d.label)
+                applyNow()
+                toast("Neues Gerät: Profil „$name“ angelegt (neutral)")
+                profileSwitchListener?.invoke()
+            } else if (prefs.autoSwitch) {
                 val target = prefs.profileForDevice(d.key)
                 if (target != null && target != prefs.currentProfileName() && prefs.loadProfile(target)) {
                     applyNow()

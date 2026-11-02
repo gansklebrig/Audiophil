@@ -145,6 +145,7 @@ class MainActivity : Activity() {
     private var balanceBar: SeekBar? = null
 
     private lateinit var autoSwitchView: Switch
+    private lateinit var newDeviceView: Switch
     private lateinit var deviceText: TextView
     private lateinit var deviceSpinner: Spinner
     private lateinit var defaultSpinner: Spinner
@@ -1190,6 +1191,10 @@ class MainActivity : Activity() {
         val au = ui.card("Automatik")
         autoSwitchView = ui.switch("Profil je Kopfhörer automatisch wechseln") { on -> prefs.autoSwitch = on }
         au.addView(autoSwitchView)
+        newDeviceView = ui.switch("Neue Bluetooth-Geräte bekommen ein eigenes, leeres Profil") { on ->
+            prefs.newDeviceProfiles = on
+        }
+        au.addView(newDeviceView)
         deviceText = ui.valueText().apply { gravity = Gravity.START; setPadding(0, ui.dp(6), 0, ui.dp(2)) }
         au.addView(deviceText)
 
@@ -1218,8 +1223,9 @@ class MainActivity : Activity() {
         assignBox = ui.vbox()
         au.addView(assignBox)
         au.addView(ui.hint(
-            "Für jeden Kopfhörer ein ★-Profil anlegen (auch mit passendem Boost), Kopfhörer verbinden und hier " +
-            "das Profil wählen. Beim nächsten Verbinden schaltet der Equalizer automatisch um. „Für alle anderen " +
+            "Verbindest du ein neues Bluetooth-Gerät, legt die App dafür automatisch ein neutrales ★-Profil mit " +
+            "seinem Namen an. Möchtest du lieber ein anderes Profil, wähle es oben unter „Profil für dieses Gerät“. " +
+            "Beim nächsten Verbinden schaltet der Equalizer automatisch um. „Für alle anderen " +
             "Geräte“ schützt davor, dass ein hoher Boost versehentlich auf lauten Kopfhörern landet."
         ))
         p.addView(au)
@@ -1561,6 +1567,7 @@ class MainActivity : Activity() {
         renderPower()
         globalSwitch.isChecked = prefs.global
         autoSwitchView.isChecked = prefs.autoSwitch
+        newDeviceView.isChecked = prefs.newDeviceProfiles
         iconSwitch.isChecked = prefs.showIcon
 
         val param = s.mode == MODE_PARAMETRIC && dpSupported

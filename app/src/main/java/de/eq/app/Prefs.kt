@@ -35,6 +35,39 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("autoSwitch", true)
         set(v) = sp.edit().putBoolean("autoSwitch", v).apply()
 
+    /** Für jedes neue Bluetooth-Gerät automatisch ein eigenes, neutrales Profil anlegen. */
+    var newDeviceProfiles: Boolean
+        get() = sp.getBoolean("newDeviceProfiles", true)
+        set(v) = sp.edit().putBoolean("newDeviceProfiles", v).apply()
+
+    /**
+     * Merkt sich ein Ausgabegerät als bekannt. Gibt true zurück, wenn es zum ersten Mal auftaucht.
+     * Beim allerersten Aufruf gelten alle schon zugeordneten Geräte und das zuletzt benutzte als bekannt,
+     * damit nach dem Update nicht plötzlich für vertraute Kopfhörer neue Profile entstehen.
+     */
+    fun markDeviceKnown(key: String): Boolean {
+        val known = sp.getStringSet("knownDevices", null)?.toMutableSet()
+            ?: (deviceAssignments().map { it.key } + listOfNotNull(lastDeviceKey)).toMutableSet()
+        val isNew = known.add(key)
+        sp.edit().putStringSet("knownDevices", known).apply()
+        return isNew
+    }
+
+    /**
+     * Neutrales Profil für ein neues Gerät anlegen (Name = Gerätename), zuordnen und laden.
+     * Gibt es schon ein Profil mit genau diesem Namen (z. B. aus AutoEq), wird dieses verwendet.
+     */
+    fun createDeviceProfile(key: String, label: String): String {
+        val name = label.trim().ifEmpty { "Neue Kopfhörer" }
+        if (findProfile(name) == null) {
+            val cur = state
+            profiles = profiles + Profile(name, EqState(mode = cur.mode, bands = IntArray(cur.bands.size)))
+        }
+        assignDevice(key, label, name)
+        loadProfile(name)
+        return name
+    }
+
     /** Zuletzt erkanntes Ausgabegerät – damit nur bei echten Wechseln umgeschaltet wird. */
     var lastDeviceKey: String?
         get() = sp.getString("lastDevice", null)

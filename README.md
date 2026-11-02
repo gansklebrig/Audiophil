@@ -113,6 +113,10 @@ Beim ersten Update fragt Android, ob der Equalizer Apps installieren darf → er
 ### Kopfhörer-Automatik
 - Jedem Bluetooth-/USB-Kopfhörer (oder „Kabelkopfhörer“) ein ★-Profil zuordnen – beim Verbinden
   wird es automatisch aktiviert. Zusätzlich ein Profil „für alle anderen Geräte“.
+- **Neue Bluetooth-Geräte** bekommen beim ersten Verbinden automatisch ein eigenes, neutrales ★-Profil
+  mit dem Gerätenamen (abschaltbar). Gibt es schon ein Profil mit genau diesem Namen (z. B. aus AutoEq),
+  wird dieses verknüpft. Die Zuordnung lässt sich jederzeit auf ein anderes Profil ändern.
+  Bereits zugeordnete und das zuletzt benutzte Gerät gelten beim Update als bekannt.
 
 ### Schnellzugriff & Benachrichtigung
 - **Homescreen-Widget** (4×2): Ein/Aus, Profil vor/zurück, Lautstärke-Boost ±0,5 dB.
